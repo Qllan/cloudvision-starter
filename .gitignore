@@ -1,0 +1,22 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store
+.vscode/
+
+# Original imagery, models, and output: keep outside GitHub
+/data/input/*
+!/data/input/.gitkeep
+/data/accepted/*
+!/data/accepted/.gitkeep
+/data/rejected/*
+!/data/rejected/.gitkeep
+/reports/*
+!/reports/.gitkeep
+/models/
+/checkpoints/
+
+# Don't commit private settings
+.env
