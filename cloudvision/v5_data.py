@@ -175,3 +175,43 @@ def prepare_v5_plan(new_manifest: Path, new_images: Path, new_masks: Path,
     if any(item.group in protected for item in train):
         raise ValueError("В TRAIN присутствует защищённая сцена")
     return sorted(train + val, key=lambda item: (item.split, item.source, item.relative_path)), excluded
+
+
+
+def validate_frozen_v5_plan(plan_csv: Path, expected: list[TrainPair],
+                            holdout_csv: Path) -> None:
+    """Only use a preflight CSV that exactly matches revalidated original files.
+
+    The new holdout is read only as a TEXT manifest; its photos/masks are not
+    inspected or evaluated during training.
+    """
+    rows = _read_csv(plan_csv, {"split", "source", "relative_path", "scene_group",
+                                "image_path", "mask_path"})
+    def fields(row: TrainPair) -> tuple[str, ...]:
+        return (row.split, row.source, row.relative_path, row.group,
+                str(row.image_path), str(row.mask_path))
+    expected_set = {fields(item) for item in expected}
+    actual_set = {tuple(row[field] for field in (
+        "split", "source", "relative_path", "scene_group",
+        "image_path", "mask_path")) for row in rows}
+    if len(rows) != len(expected_set) or actual_set != expected_set:
+        raise ValueError("Предварительный план TRAIN изменился; создай новый отчёт preflight "
+                         "в другой папке до обучения")
+    holdout_rows = _read_csv(holdout_csv, {"relative_path", "scene_group", "split"})
+    if not holdout_rows:
+        raise ValueError("Новая отложенная выборка пуста")
+    holdout_names = set()
+    holdout_groups = set()
+    for item in holdout_rows:
+        rel = _relative_path(item["relative_path"])
+        if item["split"] != "test" or scene_group(rel) != item["scene_group"].casefold():
+            raise ValueError(f"Некорректный новый TEST-манифест: {rel}")
+        if rel.as_posix().casefold() in holdout_names:
+            raise ValueError(f"Повторный TEST-кадр: {rel}")
+        holdout_names.add(rel.as_posix().casefold())
+        holdout_groups.add(scene_group(rel))
+    train_val_groups = {pair.group for pair in expected}
+    if holdout_groups.intersection(train_val_groups):
+        raise ValueError("Новая отложенная группа пересекается с TRAIN/VAL")
+    if holdout_names.intersection(pair.relative_path.casefold() for pair in expected):
+        raise ValueError("Новый TEST содержит TRAIN/VAL изображение")
