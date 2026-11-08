@@ -87,7 +87,7 @@ class CloudHeavyFourPanelTests(unittest.TestCase):
         out = self.root / "review"
         params = argparse.Namespace(manifest=manifest, input=images, labels=labels,
                                     query="SXC3-2334", v4=model4, v5=model5,
-                                    frozen=self.root / "missing_frozen.json", out=out,
+                                    frozen=self.root / "evaluation" / "frozen_models.json", out=out,
                                     device="cpu", panel_width=420)
         with self.assertRaisesRegex(FileNotFoundError, "frozen_models.json"):
             run(params)
