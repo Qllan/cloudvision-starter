@@ -7,6 +7,7 @@ from pathlib import Path
 from PIL import Image
 
 from build_operator_report_v4 import build_report, read_batch_report
+from cloudvision.operator_queue import review_queue
 
 
 class OperatorReportV4Tests(unittest.TestCase):
@@ -17,6 +18,7 @@ class OperatorReportV4Tests(unittest.TestCase):
         self.images = self.root / "photos"
         self.batch = self.root / "batch"
         self.output = self.batch / "operator_review"
+        self.verified = self.root / "pilot_verified"
         (self.images / "nested").mkdir(parents=True)
         (self.batch / "masks/nested").mkdir(parents=True)
         self.names = [
@@ -50,10 +52,13 @@ class OperatorReportV4Tests(unittest.TestCase):
         original_mask_bytes = (self.batch / self.masks[0]).read_bytes()
         stats = build_report(self.images, self.batch, self.output)
         self.assertEqual(stats, {"total": 3, "kept": 2, "rejected": 1,
-                                 "review": 3, "previewed": 3})
+                                 "review": 3, "manual_pending": 3,
+                                 "manual_done": 0, "previewed": 3})
         with (self.output / "operator_review.csv").open(encoding="utf-8-sig", newline="") as file:
             rows = list(csv.DictReader(file))
         self.assertEqual(rows[0]["решение_по_75%"], "ОТСЕЯТЬ")
+        self.assertTrue(all(r["статус_проверки"] == "ТРЕБУЕТСЯ РУЧНАЯ ПРОВЕРКА"
+                            for r in rows))
         self.assertEqual(rows[0]["облачность_%"], "80.000")
         self.assertEqual(rows[1]["облачность_%"], "75.000")
         self.assertEqual(rows[1]["решение_по_75%"], "СОХРАНИТЬ")
@@ -121,6 +126,43 @@ class OperatorReportV4Tests(unittest.TestCase):
                                  "ТОЛЬКО ПРЕДПРОСМОТР"])
         rows = read_batch_report(self.images, self.batch)
         self.assertEqual(rows[0]["decision"], "ОТСЕЯТЬ")
+
+    def test_manual_saved_mask_changes_status_and_exposes_disagreement(self):
+        self.verified.mkdir()
+        label = self.verified / Path(self.names[1]).with_suffix(".png")
+        label.parent.mkdir(parents=True)
+        Image.new("L", (20, 20), 0).save(label)
+        stats = build_report(self.images, self.batch, self.output, verified=self.verified)
+        self.assertEqual(stats["manual_done"], 1)
+        self.assertEqual(stats["manual_pending"], 2)
+        with (self.output / "operator_review.csv").open(encoding="utf-8-sig", newline="") as file:
+            rows = list(csv.DictReader(file))
+        reviewed = next(r for r in rows if r["исходный_файл"] == self.names[1])
+        self.assertEqual(reviewed["статус_проверки"], "ПРОВЕРЕНО ОПЕРАТОРОМ")
+        self.assertEqual(reviewed["ручная_облачность_%"], "0.000")
+        self.assertEqual(reviewed["решение_по_75%"], "ОТСЕЯТЬ")
+        self.assertEqual(reviewed["ручное_решение_по_75%"], "СОХРАНИТЬ")
+        self.assertEqual(reviewed["расхождение_пп"], "80.000")
+        self.assertEqual(reviewed["IoU_с_ручной_маской"], "0.00000")
+
+    def test_invalid_manual_mask_fails_before_any_report_changes(self):
+        self.verified.mkdir()
+        label = self.verified / Path(self.names[0]).with_suffix(".png")
+        label.parent.mkdir(parents=True)
+        Image.new("L", (20, 20), 128).save(label)
+        with self.assertRaisesRegex(ValueError, "0/255"):
+            build_report(self.images, self.batch, self.output, verified=self.verified)
+        self.assertFalse((self.output / "index.html").exists())
+
+    def test_review_queue_preserves_priority_and_rejects_traversal(self):
+        build_report(self.images, self.batch, self.output)
+        selected = review_queue(self.output / "operator_review.csv", self.images)
+        self.assertEqual([path.name for path in selected],
+                         [Path(self.names[i]).name for i in (1, 0, 2)])
+        queue = self.output / "unsafe.csv"
+        queue.write_text("исходный_файл\n../secret.jpg\n", encoding="utf-8")
+        with self.assertRaises(ValueError):
+            review_queue(queue, self.images)
 
     def test_outputs_cannot_be_written_into_originals_or_masks(self):
         with self.assertRaises(ValueError):
