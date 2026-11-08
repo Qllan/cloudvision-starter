@@ -62,6 +62,14 @@ class BatchV4Tests(unittest.TestCase):
         self.assertEqual(stats["failed"], 1)
         self.assertEqual(stats["processed"], 2)
 
+    def test_different_datasets_cannot_share_output_folder(self):
+        run_batch(self.images, self.output, "model-A", self.predict, log=lambda _: None)
+        other = self.root / "other"
+        other.mkdir()
+        Image.new("RGB", (8, 8), (20, 20, 20)).save(other / "same.jpg")
+        with self.assertRaises(ValueError):
+            run_batch(other, self.output, "model-A", self.predict, log=lambda _: None)
+
     def test_rejects_output_inside_input(self):
         with self.assertRaises(ValueError):
             run_batch(self.images, self.images / "output", "model-A", self.predict)
