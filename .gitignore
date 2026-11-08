@@ -49,3 +49,6 @@ reports/
 # Logs
 *.log
 
+
+# Manually selected private local scene filenames
+/selected_cloud_heavy.txt
