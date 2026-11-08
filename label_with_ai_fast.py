@@ -346,7 +346,7 @@ def main() -> None:
 
     if not args.input.is_dir():
         parser.error(f"Нет папки с изображениями: {args.input}")
-    images = sorted(x for x in args.input.rglob("*") if x.is_file() and not x.is_symlink() and x.suffix.lower() in IMAGE_EXTENSIONS)
+    images = sorted(x.resolve() for x in args.input.rglob("*") if x.is_file() and not x.is_symlink() and x.suffix.lower() in IMAGE_EXTENSIONS)
     if not images:
         parser.error(f"Нет изображений в {args.input}")
     if not args.ai_masks.is_dir():
