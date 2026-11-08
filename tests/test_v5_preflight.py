@@ -10,6 +10,7 @@ from PIL import Image
 from cloudvision.selection import scene_group
 from cloudvision.v5_data import prepare_v5_plan, validate_frozen_v5_plan
 from select_v5_holdout import choose_holdout, excluded_groups
+from cloudvision.v5_holdout import freeze_v5, verify_v5_freeze
 
 
 def write_csv(path: Path, columns: list[str], rows: list[dict]):
@@ -161,6 +162,28 @@ class V5PreparationTests(unittest.TestCase):
         write_csv(previous, ["исходный_файл"], [{"исходный_файл": selected}])
         excluded = excluded_groups(self.new_manifest, self.old_split, self.pilot_csv, previous)
         self.assertIn(scene_group(Path(selected)), excluded)
+
+    def test_v4_v5_freeze_is_immutable_before_test_images_exist(self):
+        holdout = self.root / "new_holdout.csv"
+        name = filename("2026-12-11")
+        write_csv(holdout, ["relative_path", "scene_group", "split"], [
+            {"relative_path": filename(f"2026-12-{day:02d}"),
+             "scene_group": scene_group(Path(filename(f"2026-12-{day:02d}"))),
+             "split": "test"} for day in range(11, 16)])
+        old = self.root / "v4.pt"
+        new = self.root / "v5.pt"
+        frozen = self.root / "frozen" / "frozen_models.json"
+        old.write_bytes(b"v4 placeholder weights")
+        new.write_bytes(b"v5 placeholder weights")
+        snapshot = freeze_v5(holdout, old, new, frozen)
+        self.assertEqual(snapshot["test_count"], 5)
+        verify_v5_freeze(holdout, old, new, frozen)
+        self.assertFalse((self.new / name).exists())
+        with self.assertRaises(FileExistsError):
+            freeze_v5(holdout, old, new, frozen)
+        new.write_bytes(b"v5 altered")
+        with self.assertRaisesRegex(ValueError, "изменился"):
+            verify_v5_freeze(holdout, old, new, frozen)
 
     def test_holdout_requires_distinct_new_scenes(self):
         excluded = excluded_groups(self.new_manifest, self.old_split, self.pilot_csv)
