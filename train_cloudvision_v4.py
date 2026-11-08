@@ -21,6 +21,7 @@ from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 from cloudvision.v4_data import Example, prepare_examples
 from train_cloudvision import TinyUNet, evaluate, letterbox_rgb_and_mask, save_example
 from train_cloudvision_v2 import cloud_loss, is_degenerate
+from run_competition_demo import predict_mask
 
 ROOT = Path(__file__).resolve().parent
 
@@ -57,6 +58,41 @@ class V4Dataset(Dataset):
         return (torch.from_numpy(np.ascontiguousarray(x.transpose(2, 0, 1))),
                 torch.from_numpy(np.ascontiguousarray(y[None])),
                 torch.from_numpy(np.ascontiguousarray(v[None])))
+
+
+def evaluate_originals(model: TinyUNet, examples: list[Example], size: int,
+                       device: torch.device) -> tuple[dict[str, float], list[dict]]:
+    """Evaluate at original satellite resolution, exactly like operator inference."""
+    model.eval()
+    rows = []
+    for example in examples:
+        with Image.open(example.image_path) as source:
+            image = ImageOps.exif_transpose(source).convert("RGB")
+        with Image.open(example.label_path) as verified:
+            reference = np.asarray(verified, dtype=np.uint8) == 255
+        predicted = np.asarray(predict_mask(image, model, size, device),
+                               dtype=np.uint8) == 255
+        total = reference.size
+        reference_percent = 100 * float(np.count_nonzero(reference)) / total
+        predicted_percent = 100 * float(np.count_nonzero(predicted)) / total
+        intersection = np.count_nonzero(predicted & reference)
+        union = np.count_nonzero(predicted | reference)
+        iou = (intersection / union) if union else 1.0
+        rows.append({
+            "image": example.image_name,
+            "predicted_percent": round(predicted_percent, 3),
+            "reference_percent": round(reference_percent, 3),
+            "absolute_error_pp": round(abs(predicted_percent - reference_percent), 3),
+            "iou": round(float(iou), 5),
+            "reference_action": "REJECT" if reference_percent > 75 else "KEEP",
+            "predicted_action": "REJECT" if predicted_percent > 75 else "KEEP",
+        })
+    return {
+        "mae_pp": sum(r["absolute_error_pp"] for r in rows) / len(rows),
+        "mean_iou": sum(r["iou"] for r in rows) / len(rows),
+        "decision_accuracy": sum(r["reference_action"] == r["predicted_action"]
+                                 for r in rows) / len(rows),
+    }, rows
 
 
 def _write_csv(path: Path, rows: list[dict]) -> None:
@@ -117,11 +153,7 @@ def train(args) -> dict[str, float]:
     val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=0)
 
     old_size = int(checkpoint["size"])
-    old_val = V4Dataset(parts["val"], old_size, augment=False)
-    old_val_loader = DataLoader(old_val, batch_size=args.batch_size, shuffle=False, num_workers=0)
-    old_metrics, old_rows = evaluate(model, old_val_loader, device)
-    for row, example in zip(old_rows, parts["val"]):
-        row["image"] = example.image_name
+    old_metrics, old_rows = evaluate_originals(model, parts["val"], old_size, device)
 
     # Upweight new TRAIN scenes during fine-tuning to learn new terrain colors.
     weights = [3.0 if sample.source == "new" else 1.0 for sample in parts["train"]]
@@ -143,7 +175,7 @@ def train(args) -> dict[str, float]:
           f"веса v3, эпоха {checkpoint.get('best_epoch','?')}")
     print(f"TRAIN {len(train_ds)} (новых: {counts['new']}, старых: {counts['old']}); "
           f"VAL {len(val_ds)}; TEST — НЕ открывается")
-    print(f"v3 на новой VAL: MAE {old_metrics['mae_pp']:.2f} п.п. | "
+    print(f"v3 на новой VAL (исходное разрешение): MAE {old_metrics['mae_pp']:.2f} п.п. | "
           f"IoU {old_metrics['mean_iou']:.3f} | "
           f"точность решений {old_metrics['decision_accuracy']:.1%}")
 
@@ -201,9 +233,7 @@ def train(args) -> dict[str, float]:
 
     best = torch.load(args.model, map_location=device, weights_only=True)
     model.load_state_dict(best["state_dict"])
-    metrics, rows = evaluate(model, val_loader, device)
-    for row, example in zip(rows, parts["val"]):
-        row["image"] = example.image_name
+    metrics, rows = evaluate_originals(model, parts["val"], args.size, device)
     _write_csv(args.out / "validation_predictions_v4.csv", rows)
     _write_csv(args.out / "model_comparison.csv", [
         {"model": "v3-policy", "best_epoch": checkpoint.get("best_epoch", ""),
