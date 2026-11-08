@@ -66,6 +66,27 @@ Pillow, NumPy и веса models/cloudvision_unet_v3_policy.pt.
 
 Подробнее: [отбор и разметка 50 кадров](docs/label_v4_samples.md).
 
+## Обучение U-Net v4 на RTX 3060 Ti
+
+После завершения ручной разметки 45 TRAIN/VAL снимков (35 TRAIN, 10 VAL)
+можно дообучить модель v3 Policy на проверенных масках. Дополнительно
+используется только старый TRAIN; старые и новые TEST не открываются.
+
+Сначала короткая проверка в отдельной модели:
+
+    .\.venv\Scripts\python.exe train_cloudvision_v4.py --device cuda --epochs 2 --model models/cloudvision_unet_v4_smoke.pt --out reports/training_v4_smoke
+
+После её успешного завершения:
+
+    .\.venv\Scripts\python.exe train_cloudvision_v4.py --device cuda --epochs 25 --size 256 --batch-size 4
+
+Новый checkpoint: models/cloudvision_unet_v4_policy.pt.
+Сравнение v3 и v4 на десяти проверочных снимках: reports/training_v4/model_comparison.csv.
+Старый checkpoint v3 остаётся неизменным. Если старое разбиение
+отсутствует, допустим отдельный эксперимент с --no-old-train.
+
+Подробнее: [дообучение v4 и проверка на VAL](docs/train_v4.md).
+
 ## Подробная документация
 
 - [Обработка больших датасетов v4](docs/gpu_batch_v4.md)
