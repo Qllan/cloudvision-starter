@@ -16,7 +16,7 @@ from PIL import Image, ImageOps
 
 from cloudvision.v4_holdout import aggregate_scores, mask_scores, prepared_test_pairs
 from cloudvision.v5_holdout import freeze_v5, verify_v5_freeze
-from run_competition_demo import load_checkpoint, predict_mask
+from cloudvision.inference import load_checkpoint, predict_mask
 
 ROOT = Path(__file__).resolve().parent
 
