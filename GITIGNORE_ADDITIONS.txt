@@ -1,0 +1,7 @@
+# Если этих строк ещё нет в .gitignore, добавь их:
+.venv/
+__pycache__/
+*.py[cod]
+data/input/
+reports/
+*.safetensors

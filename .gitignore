@@ -20,3 +20,32 @@ __pycache__/
 
 # Don't commit private settings
 .env
+
+
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Satellite datasets and annotations
+data/
+
+# AI models
+models/
+*.pt
+*.pth
+*.safetensors
+
+# Generated reports
+reports/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
