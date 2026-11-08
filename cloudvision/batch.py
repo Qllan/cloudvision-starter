@@ -96,6 +96,8 @@ def run_batch(
     predict: Callable[[Image.Image], Image.Image],
     limit: int = 0,
     log: Callable[[str], None] = print,
+    manifest: Path | None = None,
+    splits: set[str] | None = None,
 ) -> dict[str, int]:
     """Process one image at a time; save SQLite progress after each success.
 
@@ -110,7 +112,13 @@ def run_batch(
         raise FileNotFoundError(f"Нет папки изображений: {source}")
     if output == source or output.is_relative_to(source) or source.is_relative_to(output):
         raise ValueError("Папки входных снимков и результатов не должны пересекаться")
-    files = discover_images(source)
+    if splits is not None and manifest is None:
+        raise ValueError("Укажи --manifest для выбора train/val/test")
+    if manifest is not None:
+        from cloudvision.selection import read_manifest
+        files = read_manifest(manifest, source, splits)
+    else:
+        files = discover_images(source)
     if limit:
         files = files[:limit]
     output.mkdir(parents=True, exist_ok=True)
