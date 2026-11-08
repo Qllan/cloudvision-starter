@@ -10,6 +10,7 @@ import hashlib
 import os
 import sqlite3
 import tempfile
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
@@ -115,7 +116,9 @@ def run_batch(
     output.mkdir(parents=True, exist_ok=True)
     source_id = hashlib.sha256(os.fsencode(str(source).casefold())).hexdigest()
     stats = {"found": len(files), "processed": 0, "skipped": 0, "failed": 0}
-    with sqlite3.connect(output / "progress.sqlite3") as db:
+    # sqlite3.Connection.__exit__ commits or rolls back but does NOT close the file.
+    # Windows locks progress.sqlite3 until the connection is explicitly closed.
+    with closing(sqlite3.connect(output / "progress.sqlite3")) as db:
         db.executescript(SCHEMA)
         registered = db.execute("SELECT value FROM metadata WHERE key='source_id'").fetchone()
         if registered and registered[0] != source_id:
