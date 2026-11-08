@@ -19,7 +19,7 @@ jobs:
       - name: Install lightweight test dependencies
         run: python -m pip install "Pillow>=10,<13" "numpy>=1.26,<3"
       - name: Check syntax
-        run: python -m compileall -q cloudvision/batch.py run_batch_v4.py select_v4_samples.py cloudvision/selection.py label_with_ai_fast.py tests/test_batch_v4.py tests/test_selection_v4.py audit_v4_labels.py tests/test_audit_v4_labels.py cloudvision/v4_data.py train_cloudvision_v4.py tests/test_v4_data.py cloudvision/v4_checkpoint.py tests/test_v4_checkpoint.py cloudvision/v4_holdout.py evaluate_v4_holdout.py tests/test_v4_holdout.py build_operator_report_v4.py tests/test_operator_report_v4.py cloudvision/operator_queue.py cloudvision/operator_verification.py cloudvision/v5_data.py prepare_v5_plan.py select_v5_holdout.py tests/test_v5_preflight.py train_cloudvision_v5.py cloudvision/v5_holdout.py evaluate_v5_holdout.py build_competition_report.py tests/test_competition_report.py prepare_cloud_heavy_challenge.py tests/test_cloud_heavy_challenge.py find_cloud_heavy_case.py tests/test_find_cloud_heavy_case.py tests/test_cloud_heavy_challenge.py
+        run: python -m compileall -q cloudvision/batch.py run_batch_v4.py select_v4_samples.py cloudvision/selection.py label_with_ai_fast.py tests/test_batch_v4.py tests/test_selection_v4.py audit_v4_labels.py tests/test_audit_v4_labels.py cloudvision/v4_data.py train_cloudvision_v4.py tests/test_v4_data.py cloudvision/v4_checkpoint.py tests/test_v4_checkpoint.py cloudvision/v4_holdout.py evaluate_v4_holdout.py tests/test_v4_holdout.py build_operator_report_v4.py tests/test_operator_report_v4.py cloudvision/operator_queue.py cloudvision/operator_verification.py cloudvision/v5_data.py prepare_v5_plan.py select_v5_holdout.py tests/test_v5_preflight.py train_cloudvision_v5.py cloudvision/v5_holdout.py evaluate_v5_holdout.py build_competition_report.py tests/test_competition_report.py prepare_cloud_heavy_challenge.py tests/test_cloud_heavy_challenge.py find_cloud_heavy_case.py tests/test_find_cloud_heavy_case.py tests/test_cloud_heavy_challenge.py cloudvision/diagnostic_panels.py compare_cloud_heavy_models.py tests/test_compare_cloud_heavy_models.py
       - name: Run isolated batch tests
         run: python -m unittest discover -s tests -p "test_batch_v4.py" -v
       - name: Run sample-selection tests
@@ -42,5 +42,7 @@ jobs:
         run: python -m unittest discover -s tests -p "test_cloud_heavy_challenge.py" -v
       - name: Run cloud-heavy case locator tests
         run: python -m unittest discover -s tests -p "test_find_cloud_heavy_case.py" -v
+      - name: Run frozen four-panel v4/v5 diagnostic tests
+        run: python -m unittest discover -s tests -p "test_compare_cloud_heavy_models.py" -v
       - name: Run AI-free cloud-heavy challenge selection tests
         run: python -m unittest discover -s tests -p "test_cloud_heavy_challenge.py" -v
