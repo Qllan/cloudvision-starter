@@ -13,10 +13,11 @@ import sys
 from PIL import Image, ImageDraw, ImageOps
 
 
-def _safe_print(value: str) -> None:
+def _safe_print(*values: object) -> None:
     """Avoid UnicodeEncodeError on legacy Windows consoles using cp1252."""
     encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
-    safe = str(value).encode(encoding, errors="backslashreplace").decode(encoding)
+    message = " ".join(str(value) for value in values)
+    safe = message.encode(encoding, errors="backslashreplace").decode(encoding)
     print(safe)
 
 ROOT = Path(__file__).resolve().parent
