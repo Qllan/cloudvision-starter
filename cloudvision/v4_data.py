@@ -44,7 +44,13 @@ def _relative_path(text: str) -> Path:
     return path
 
 
-def _validate_mask(image: Path, label: Path, check_pixels: bool = True) -> None:
+def _validate_mask(image: Path, label: Path, *, allow_scaled: bool = False) -> None:
+    """Check verified labels; legacy labels may be proportionally downsampled.
+
+    Historical manual masks were drawn at a smaller resolution, as allowed by
+    audit_dataset.py and the original training pipeline. New v4 masks must
+    still match source image dimensions exactly.
+    """
     if not image.is_file() or image.is_symlink():
         raise FileNotFoundError(f"Отсутствует изображение: {image}")
     if not label.is_file() or label.is_symlink():
@@ -54,12 +60,24 @@ def _validate_mask(image: Path, label: Path, check_pixels: bool = True) -> None:
             with ImageOps.exif_transpose(im) as correct:
                 size = correct.size
         with Image.open(label) as mask:
-            if mask.mode != "L" or mask.size != size:
-                raise ValueError(f"Некорректный режим/размер маски: {label}; ожидается L, {size}")
-            if check_pixels:
-                histogram = mask.histogram()
-                if any(v for i, v in enumerate(histogram) if i not in (0, 255)):
-                    raise ValueError(f"Маска должна содержать только 0 и 255: {label}")
+            if mask.mode != "L":
+                raise ValueError(f"Маска должна быть в режиме L: {label}; сейчас {mask.mode}")
+            mw, mh = mask.size
+            iw, ih = size
+            if min(iw, ih, mw, mh) <= 0:
+                raise ValueError(f"Пустой размер изображения/маски: {label}")
+            if allow_scaled:
+                if abs(iw / ih - mw / mh) > 0.02:
+                    raise ValueError(
+                        f"Старая маска имеет неверные пропорции: {label}, "
+                        f"изображение {size}, маска {mask.size}")
+            elif mask.size != size:
+                raise ValueError(
+                    f"Новая проверенная маска должна совпадать с исходником: "
+                    f"{label}; ожидается {size}, получено {mask.size}")
+            histogram = mask.histogram()
+            if any(v for i, v in enumerate(histogram) if i not in (0, 255)):
+                raise ValueError(f"Маска должна содержать только 0 и 255: {label}")
     except OSError as error:
         raise ValueError(f"Ошибка чтения файла {image.name}: {error}") from error
 
@@ -124,7 +142,7 @@ def prepare_examples(
             label_rel = _relative_path(row["label"])
             img = old_image_root / image_rel
             mask = old_label_root / label_rel
-            _validate_mask(img, mask)
+            _validate_mask(img, mask, allow_scaled=True)
             parts["train"].append(Example(
                 image_path=img, label_path=mask,
                 image_name=image_rel.as_posix(), group=scene_group(image_rel),
