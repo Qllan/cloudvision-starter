@@ -364,8 +364,17 @@ def main() -> None:
                         help="Открыть только снимки, для которых ещё не сохранена ручная маска")
     parser.add_argument("--blind", action="store_true",
                         help="Слепая разметка TEST: не открывать ни одной маски ИИ")
+    parser.add_argument("--review-csv", type=Path, default=None,
+                        help="Очередь пилотных кадров из operator_review.csv, в порядке приоритетов")
     args = parser.parse_args()
 
+    if args.review_csv is not None:
+        if args.blind or args.manifest is not None or args.splits != "all":
+            parser.error("--review-csv не совмещается с --blind, --manifest, --splits")
+        protected = {(ROOT / target).resolve() for target in (
+            "data/verified_v4", "data/test_verified_v4", "data/input", "reports/labels")}
+        if args.out.resolve() in protected or args.out.resolve().is_relative_to(args.input.resolve()):
+            parser.error("Для пилота укажи отдельную папку --out data/pilot_verified_v4")
     if args.blind:
         if args.manifest is None or args.splits != "test":
             parser.error("Слепая разметка разрешена только с --manifest и --splits test")
@@ -380,7 +389,13 @@ def main() -> None:
         parser.error(f"Нет папки с изображениями: {args.input}")
     if args.splits != "all" and args.manifest is None:
         parser.error("Для --splits нужно указать --manifest")
-    if args.manifest is not None:
+    if args.review_csv is not None:
+        from cloudvision.operator_queue import review_queue
+        try:
+            images = review_queue(args.review_csv, args.input)
+        except (FileNotFoundError, ValueError) as error:
+            parser.error(str(error))
+    elif args.manifest is not None:
         from cloudvision.selection import read_manifest
         try:
             selected_splits = None if args.splits == "all" else set(args.splits.split(","))
@@ -400,7 +415,8 @@ def main() -> None:
     if not args.blind and not args.ai_masks.is_dir():
         parser.error(f"Нет папки масок ИИ: {args.ai_masks}. Сначала запусти run_competition_demo.py")
     root = tk.Tk()
-    log_path = (ROOT / "reports/test_labeling_v4/test_label_log.csv") if args.blind else DEFAULT_LOG
+    log_path = ((ROOT / "reports/test_labeling_v4/test_label_log.csv") if args.blind else
+                (ROOT / "reports/pilot_labeling_v4/pilot_label_log.csv") if args.review_csv else DEFAULT_LOG)
     editor = FastLabelEditor(root, images, args.ai_masks, args.out, log_path,
                              input_root=args.input.resolve(), blind=args.blind)
     if args.start:
@@ -411,6 +427,9 @@ def main() -> None:
         editor.index = match
         editor.load_current()
     print(f"Снимков: {len(images)}" + (" без сохранённой разметки" if args.missing_only else "") + f". Исправления -> {args.out}")
+    if args.review_csv:
+        print("ПИЛОТ: все снимки из операторского CSV; сначала приоритетные. "
+              "Маски ИИ являются только подсказками, не эталоном.")
     if args.blind:
         print("Режим TEST: только RGB и ручная маска. Прогнозы ИИ НЕ используются.")
     else:
