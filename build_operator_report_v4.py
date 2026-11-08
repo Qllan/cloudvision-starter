@@ -201,7 +201,7 @@ def build_report(images: Path, batch: Path, out: Path, preview_limit: int = 0) -
         raise ValueError("Папка отчёта не должна пересекаться с исходными снимками")
     if out == batch or batch.is_relative_to(out):
         raise ValueError("Отдельный отчёт должен быть в подпапке batch либо другой папке")
-    if out == batch / "masks" or (batch / "masks").is_relative_to(out):
+    if out == batch / "masks" or out.is_relative_to(batch / "masks") or (batch / "masks").is_relative_to(out):
         raise ValueError("Отчёт нельзя сохранять поверх исходных масок")
     rows = read_batch_report(images, batch)
     rows.sort(key=lambda item: (
@@ -217,6 +217,7 @@ def build_report(images: Path, batch: Path, out: Path, preview_limit: int = 0) -
         _preview(item["photo"], item["mask"], out / item["preview"])
     # If a limit is specified, HTML shows only actually rendered previews.
     visible = rows if not preview_limit else rows[:preview_limit]
+    visible_names = {item["relative"].as_posix() for item in visible}
     with (out / "operator_review.csv").open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=FIELDS)
         writer.writeheader()
@@ -229,7 +230,7 @@ def build_report(images: Path, batch: Path, out: Path, preview_limit: int = 0) -
                 "причины_проверки": "; ".join(item["reasons"]),
                 "группа_сцены": item["group"],
                 "кадров_в_серии": item["series_size"],
-                "превью": item["preview"].as_posix() if item in visible else "",
+                "превью": item["preview"].as_posix() if item["relative"].as_posix() in visible_names else "",
             })
     (out / "index.html").write_text(_page(visible), encoding="utf-8")
     return {
@@ -246,8 +247,8 @@ def main() -> None:
     parser.add_argument("--input", type=Path, default=ROOT / "data/new_raw")
     parser.add_argument("--batch", type=Path, default=ROOT / "reports/competition_pilot_v4")
     parser.add_argument("--out", type=Path, default=None)
-    parser.add_argument("--preview-limit", type=int, default=0,
-                        help="0 — превью для всех строк; CSV содержит все строки при любом лимите")
+    parser.add_argument("--preview-limit", type=int, default=60,
+                        help="До 60 превью по умолчанию; 0 — превью для всех строк, CSV содержит все строки")
     args = parser.parse_args()
     dest = args.out or (args.batch / "operator_review")
     try:
