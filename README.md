@@ -47,6 +47,25 @@ Pillow, NumPy и веса models/cloudvision_unet_v3_policy.pt.
 
 Не загружай изображения, разметку и контрольные точки модели в GitHub.
 
+## Улучшение качества на новом датасете СПУТНИКС (v4)
+
+После проверки пяти RGB-снимков текущая U-Net v3 показала заметные ложные
+срабатывания на море и поверхности. Для улучшения качества сначала выбираем
+50 **разнообразных** снимков, а не обрабатываем все 4207 без проверки.
+
+    .\.venv\Scripts\python.exe select_v4_samples.py --input data/new_raw --count 50 --out reports/selection_v4/selection.csv
+
+Маски строим только для TRAIN и VAL. Новую независимую TEST-группу не
+используем для выбора модели:
+
+    .\.venv\Scripts\python.exe run_batch_v4.py --input data/new_raw --out reports/batch_v4_selected --manifest reports/selection_v4/selection.csv --splits train,val --device cuda
+
+Проверяем и исправляем маски в редакторе:
+
+    .\.venv\Scripts\python.exe label_with_ai_fast.py --input data/new_raw --ai-masks reports/batch_v4_selected/masks --out data/verified_v4 --manifest reports/selection_v4/selection.csv --splits train,val
+
+Подробнее: [отбор и разметка 50 кадров](docs/label_v4_samples.md).
+
 ## Подробная документация
 
 - [Обработка больших датасетов v4](docs/gpu_batch_v4.md)
