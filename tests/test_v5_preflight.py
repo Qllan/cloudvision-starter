@@ -84,6 +84,17 @@ class V5PreparationTests(unittest.TestCase):
             self.pilot_csv, self.pilot_masks,
         )
 
+    def test_train_pairs_match_v4_dataset_and_evaluation_interface(self):
+        """Regression: evaluate_originals/V4Dataset read .label_path, not .mask_path."""
+        plan, _ = self.build()
+        for sample in plan:
+            self.assertEqual(sample.label_path, sample.mask_path)
+            self.assertIsInstance(sample.label_path, Path)
+            self.assertTrue(sample.label_path.is_file())
+            self.assertEqual(sample.image_name, sample.relative_path)
+            self.assertTrue(sample.image_path.is_file())
+        self.assertEqual(len([sample for sample in plan if sample.split == "val"]), 1)
+
     def test_pilot_duplicate_replaces_old_train_without_double_counting(self):
         plan, excluded = self.build()
         self.assertEqual(len(plan), 4)  # v4 TRAIN + pilot old replacement + pilot new + v4 VAL
