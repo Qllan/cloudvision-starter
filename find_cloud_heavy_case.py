@@ -8,8 +8,16 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import sys
 
 from PIL import Image, ImageDraw, ImageOps
+
+
+def _safe_print(value: str) -> None:
+    """Avoid UnicodeEncodeError on legacy Windows consoles using cp1252."""
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    safe = str(value).encode(encoding, errors="backslashreplace").decode(encoding)
+    print(safe)
 
 ROOT = Path(__file__).resolve().parent
 PHOTO_EXTS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp"}
@@ -87,26 +95,26 @@ def search_and_preview(image_root: Path, labels: Path, query: str,
         if destination == protected or destination.is_relative_to(protected):
             raise ValueError("Выходная папка не должна быть внутри снимков или ручных масок")
     matches = find_photos(source, query)
-    print(f"Найдено оригиналов: {len(matches)}")
+    _safe_print(f"Найдено оригиналов: {len(matches)}")
     for path in matches:
-        print("RGB:", path)
+        _safe_print("RGB:", path)
         mask = find_manual_mask(path, source, label_root)
-        print("Ручная маска:", mask if mask else "НЕ НАЙДЕНА")
+        _safe_print("Ручная маска:", mask if mask else "НЕ НАЙДЕНА")
     if len(matches) != 1:
         if not matches:
             raise FileNotFoundError("Снимок не найден: проверь имя, либо укажи --query SXC3-2334")
-        print("Совпадений несколько. Уточни --query до полного имени одного снимка.")
+        _safe_print("Совпадений несколько. Уточни --query до полного имени одного снимка.")
         return {"matches": len(matches), "preview": None}
     mask = find_manual_mask(matches[0], source, label_root)
     if mask is None:
-        print("PNG-маска отсутствует; проверь папку --labels. Превью не создавалось.")
+        _safe_print("PNG-маска отсутствует; проверь папку --labels. Превью не создавалось.")
         return {"matches": 1, "preview": None}
     output = destination / f"{matches[0].stem}_original_manual_preview.jpg"
     percent = create_preview(matches[0], mask, output, width=width)
-    print(f"Ручная облачность: {percent:.3f}%")
-    print("Правило >75%:", "ОТСЕЯТЬ" if percent > 75 else "СОХРАНИТЬ")
-    print("Изображение для отправки:", output)
-    print("Все исходные RGB, PNG и checkpoints остались без изменений.")
+    _safe_print(f"Ручная облачность: {percent:.3f}%")
+    _safe_print("Правило >75%:", "ОТСЕЯТЬ" if percent > 75 else "СОХРАНИТЬ")
+    _safe_print("Изображение для отправки:", output)
+    _safe_print("Все исходные RGB, PNG и checkpoints остались без изменений.")
     return {"matches": 1, "preview": output, "percent": percent}
 
 
