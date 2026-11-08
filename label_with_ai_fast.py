@@ -344,6 +344,8 @@ def main() -> None:
     parser.add_argument("--start", type=str, default="", help="Начать со снимка, имя которого содержит текст")
     parser.add_argument("--manifest", type=Path, default=None, help="CSV от select_v4_samples.py")
     parser.add_argument("--splits", choices=("train,val", "train", "val", "test", "all"), default="all")
+    parser.add_argument("--missing-only", action="store_true",
+                        help="Открыть только снимки, для которых ещё не сохранена ручная маска")
     args = parser.parse_args()
 
     if not args.input.is_dir():
@@ -359,6 +361,12 @@ def main() -> None:
             parser.error(str(error))
     else:
         images = sorted(x.resolve() for x in args.input.rglob("*") if x.is_file() and not x.is_symlink() and x.suffix.lower() in IMAGE_EXTENSIONS)
+    if args.missing_only:
+        from cloudvision.selection import missing_verified_images
+        images = missing_verified_images(images, args.input, args.out)
+        if not images:
+            print("Готово: все выбранные снимки уже имеют сохранённые маски.")
+            return
     if not images:
         parser.error(f"Нет изображений в {args.input}")
     if not args.ai_masks.is_dir():
@@ -372,7 +380,7 @@ def main() -> None:
             parser.error("Снимок для --start не найден")
         editor.index = match
         editor.load_current()
-    print(f"Снимков: {len(images)}. Исправления -> {args.out}")
+    print(f"Снимков: {len(images)}" + (" без сохранённой разметки" if args.missing_only else "") + f". Исправления -> {args.out}")
     print("ИИ-подсказки загружаются из --ai-masks; модель заново не запускается.")
     root.mainloop()
 
