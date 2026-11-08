@@ -85,6 +85,16 @@ Pillow, NumPy и веса models/cloudvision_unet_v3_policy.pt.
 Старый checkpoint v3 остаётся неизменным. Если старое разбиение
 отсутствует, допустим отдельный эксперимент с --no-old-train.
 
+Если v4 уже обучена и нужно сравнить **две независимые цели выбора эпохи**
+(MAE процента облачности и IoU маски), запускай отдельный эксперимент без
+перезаписи старого checkpoint:
+
+    .\.venv\Scripts\python.exe train_cloudvision_v4.py --device cuda --epochs 25 --size 256 --batch-size 4 --model models/cloudvision_unet_v4_dual_area.pt --mask-model models/cloudvision_unet_v4_dual_mask.pt --out reports/training_v4_dual
+
+Итог: три строки сравнения v3 / v4-area / v4-mask в
+reports/training_v4_dual/model_comparison.csv. Выбор эпох делается по VAL,
+TEST остаётся отдельно.
+
 Подробнее: [дообучение v4 и проверка на VAL](docs/train_v4.md).
 
 ## Подробная документация
