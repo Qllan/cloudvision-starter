@@ -63,7 +63,7 @@ def run(args: argparse.Namespace) -> Path:
 
     # Torch is imported only when actually diagnosing; light unit tests need no CUDA.
     import torch
-    from run_competition_demo import load_checkpoint, predict_mask
+    from cloudvision.inference import load_checkpoint, predict_mask
 
     if args.device == "cuda" and not torch.cuda.is_available():
         raise ValueError("CUDA requested but unavailable")
