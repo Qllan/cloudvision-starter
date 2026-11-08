@@ -21,7 +21,7 @@ from cloudvision.v4_holdout import (
     aggregate_scores, check_frozen, freeze_checkpoints, mask_scores,
     prepared_test_pairs,
 )
-from run_competition_demo import load_checkpoint, predict_mask
+from cloudvision.inference import load_checkpoint, predict_mask
 
 ROOT = Path(__file__).resolve().parent
 
