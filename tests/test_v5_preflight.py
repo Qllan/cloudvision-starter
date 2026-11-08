@@ -8,7 +8,7 @@ from pathlib import Path
 from PIL import Image
 
 from cloudvision.selection import scene_group
-from cloudvision.v5_data import prepare_v5_plan
+from cloudvision.v5_data import prepare_v5_plan, validate_frozen_v5_plan
 from select_v5_holdout import choose_holdout, excluded_groups
 
 
@@ -112,6 +112,35 @@ class V5PreparationTests(unittest.TestCase):
         Image.new("RGB", (16, 12), "yellow").save(self.new / self.old_train)
         with self.assertRaisesRegex(ValueError, "разные байты"):
             self.build()
+
+    def test_preflight_and_holdout_must_be_frozen_disjoint(self):
+        plan, _ = self.build()
+        csv_path = self.root / "train_manifest.csv"
+        write_csv(csv_path, ["split", "source", "relative_path", "scene_group",
+                             "image_path", "mask_path"], [
+            {"split": p.split, "source": p.source, "relative_path": p.relative_path,
+             "scene_group": p.group, "image_path": str(p.image_path),
+             "mask_path": str(p.mask_path)} for p in plan
+        ])
+        holdout_path = self.root / "new_test.csv"
+        chosen_name = filename("2026-07-22")
+        write_csv(holdout_path, ["relative_path", "scene_group", "split"], [{
+            "relative_path": chosen_name,
+            "scene_group": scene_group(Path(chosen_name)),
+            "split": "test",
+        }])
+        validate_frozen_v5_plan(csv_path, plan, holdout_path)
+        write_csv(holdout_path, ["relative_path", "scene_group", "split"], [{
+            "relative_path": self.val_v4,
+            "scene_group": scene_group(Path(self.val_v4)),
+            "split": "test",
+        }])
+        with self.assertRaisesRegex(ValueError, "пересекается"):
+            validate_frozen_v5_plan(csv_path, plan, holdout_path)
+        csv_path.write_text("split,source,relative_path,scene_group,image_path,mask_path\n",
+                            encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "изменился"):
+            validate_frozen_v5_plan(csv_path, plan, holdout_path)
 
     def test_holdout_selection_excludes_all_seen_groups_without_pixels(self):
         # Extra candidate scenes: one per date/camera; no image open is necessary.
