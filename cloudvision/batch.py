@@ -64,7 +64,8 @@ def model_fingerprint(path: Path) -> str:
     with path.open("rb") as handle:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
-    version = "v4" if "_v4_" in path.stem.casefold() else "v3"
+    stem = path.stem.casefold()
+    version = "v5" if "_v5_" in stem else "v4" if "_v4_" in stem else "v3"
     return f"unet-policy-{version}:" + digest.hexdigest()
 
 
