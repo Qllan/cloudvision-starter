@@ -24,7 +24,13 @@ def main() -> None:
     parser.add_argument("--model", type=Path, default=ROOT / "models/cloudvision_unet_v3_policy.pt")
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     parser.add_argument("--limit", type=int, default=0, help="0 — все найденные снимки")
+    parser.add_argument("--manifest", type=Path, default=None, help="CSV выборки от select_v4_samples.py")
+    parser.add_argument("--splits", choices=("train,val", "train", "val", "test", "all"), default="all",
+                        help="Для разметки обычно train,val — TEST оставляем независимым")
     args = parser.parse_args()
+    if args.splits != "all" and args.manifest is None:
+        parser.error("Для --splits нужно указать --manifest")
+    requested_splits = None if args.splits == "all" else set(args.splits.split(","))
     if args.device == "cuda" and not torch.cuda.is_available():
         parser.error("CUDA недоступна в текущем PyTorch")
     device_name = "cuda" if (args.device == "auto" and torch.cuda.is_available()) else args.device
@@ -43,6 +49,8 @@ def main() -> None:
             model_id=fingerprint,
             predict=lambda image: predict_mask(image, model, size, device),
             limit=args.limit,
+            manifest=args.manifest,
+            splits=requested_splits,
         )
     except (FileNotFoundError, ValueError) as error:
         parser.error(str(error))
