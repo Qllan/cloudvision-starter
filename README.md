@@ -146,6 +146,34 @@ HTML показывает RGB и наложение маски ИИ; CSV выд�
 
 Подробнее: [операторский отчёт v4](docs/operator_review_v4.md).
 
+## Обучение v5 с учётом 30 проверенных пилотных снимков
+
+После пилотного аудита U-Net v4 (30 ручных масок, 3 пропущенных отсева)
+подготовлено дообучение на исправленных TRAIN с отдельным новым TEST.
+Оно **не использует** прежние TEST для подбора весов.
+
+Сначала проверить пересечения с прежними TRAIN/VAL/TEST и создать
+фиксированный набор из 24 ещё не использованных групп сцен:
+
+    .\.venv\Scripts\python.exe prepare_v5_plan.py
+    .\.venv\Scripts\python.exe select_v5_holdout.py --count 24
+
+Только если обе команды завершились без ошибок — проверить CUDA:
+
+    .\.venv\Scripts\python.exe train_cloudvision_v5.py --device cuda --epochs 2 --model models/cloudvision_unet_v5_smoke.pt --out reports/training_v5_smoke
+
+После пробного обучения отдельный запуск v5:
+
+    .\.venv\Scripts\python.exe train_cloudvision_v5.py --device cuda --epochs 18 --size 256 --batch-size 4
+
+Новая модель сохраняется в \`models/cloudvision_unet_v5_pilot.pt\`,
+старые v3 и v4 неизменны. Прежняя v4 VAL используется только для выбора
+эпохи; новый \`reports/v5/holdout_manifest.csv\` **не открывается как
+изображения** во время тренировки. После фиксации v5 новый TEST
+размечается независимо, без подсказки AI.
+
+Подробнее: [аудит, обучение и независимая проверка v5](docs/v5_training.md).
+
 ## Подробная документация
 
 - [Обработка больших датасетов v4](docs/gpu_batch_v4.md)
