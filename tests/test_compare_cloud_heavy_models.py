@@ -67,7 +67,7 @@ class CloudHeavyFourPanelTests(unittest.TestCase):
         images, labels, image, mask, manifest = self._prepare_case()
         found, chosen_mask = select_case(manifest, images, labels, "SXC3-2334")
         self.assertEqual(found, image.resolve())
-        self.assertEqual(chosen_mask, mask)
+        self.assertEqual(chosen_mask.resolve(), mask.resolve())
         with self.assertRaisesRegex(FileNotFoundError, "No image matched"):
             select_case(manifest, images, labels, "another_photo")
         image2 = images / "2025-11-30_22-18-25_SXC3-2334_2.jpg"
