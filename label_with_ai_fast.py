@@ -21,9 +21,11 @@ DEFAULT_LOG = ROOT / "reports" / "label_assisted" / "label_log.csv"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp"}
 
 
-def find_ai_mask(image_path: Path, folder: Path) -> Path | None:
+def find_ai_mask(image_path: Path, folder: Path, input_root: Path | None = None) -> Path | None:
     """Search *exact*, known mask names; avoid matching another satellite shot."""
     stem = image_path.stem
+    # Mirror input subfolders so repeated filenames cannot collide.
+    target_folder = folder / image_path.relative_to(input_root).parent if input_root else folder
     candidates = (
         f"{stem}_policy_mask.png",  # stage 14, run_competition_demo.py
         f"{stem}_mask.png",
@@ -31,7 +33,7 @@ def find_ai_mask(image_path: Path, folder: Path) -> Path | None:
         f"{image_path.name}.png",
     )
     for name in candidates:
-        path = folder / name
+        path = target_folder / name
         if path.is_file():
             return path
     return None
@@ -97,9 +99,10 @@ def apply_stroke(
 
 class FastLabelEditor:
     def __init__(self, root: tk.Tk, images: list[Path], masks_dir: Path,
-                 out_dir: Path, log_path: Path):
+                 out_dir: Path, log_path: Path, input_root: Path | None = None):
         self.root = root
         self.images = images
+        self.input_root = input_root.resolve() if input_root else None
         self.masks_dir = masks_dir
         self.out_dir = out_dir
         self.log_path = log_path
@@ -162,7 +165,8 @@ class FastLabelEditor:
 
     @property
     def current_output(self) -> Path:
-        return self.out_dir / f"{self.current_image.stem}.png"
+        relative = self.current_image.relative_to(self.input_root) if self.input_root else self.current_image
+        return self.out_dir / relative.parent / f"{relative.stem}.png"
 
     def load_current(self) -> None:
         with Image.open(self.current_image) as source:
@@ -175,13 +179,13 @@ class FastLabelEditor:
         self.view_size = self.base_view.size
         self.canvas.config(width=self.view_size[0], height=self.view_size[1])
 
-        self.ai_path = find_ai_mask(self.current_image, self.masks_dir)
+        self.ai_path = find_ai_mask(self.current_image, self.masks_dir, self.input_root)
         if self.ai_path:
             self.seed_mask = mask_to_binary(self.ai_path, (w, h))
             info_seed = f"ИИ: {cloud_percent(self.seed_mask):.1f}%"
         else:
             self.seed_mask = Image.new("L", (w, h), 0)
-            info_seed = "⚠ маска ИИ не найдена (пустая)"
+            info_seed = "⚠ ПРЕДСКАЗАНИЕ ИИ ОТСУТСТВУЕТ (пустая маска — не прогноз)"
 
         if self.current_output.is_file():
             self.mask = mask_to_binary(self.current_output, (w, h))
@@ -274,6 +278,12 @@ class FastLabelEditor:
         return True
 
     def save(self):
+        if self.ai_path is None and not self.modified:
+            if not messagebox.askyesno("Нет прогноза ИИ",
+                "На этом снимке отсутствует маска ИИ. Сохранить пустую маску как ручную разметку?",
+                parent=self.root):
+                return
+        self.current_output.parent.mkdir(parents=True, exist_ok=True)
         if self.stroke:
             # On-screen painting should be committed before saving.
             apply_stroke(self.mask, self.stroke, self.view_size, self.radius, self.stroke_add)
@@ -336,13 +346,13 @@ def main() -> None:
 
     if not args.input.is_dir():
         parser.error(f"Нет папки с изображениями: {args.input}")
-    images = sorted(x for x in args.input.iterdir() if x.is_file() and x.suffix.lower() in IMAGE_EXTENSIONS)
+    images = sorted(x for x in args.input.rglob("*") if x.is_file() and not x.is_symlink() and x.suffix.lower() in IMAGE_EXTENSIONS)
     if not images:
         parser.error(f"Нет изображений в {args.input}")
     if not args.ai_masks.is_dir():
         parser.error(f"Нет папки масок ИИ: {args.ai_masks}. Сначала запусти run_competition_demo.py")
     root = tk.Tk()
-    editor = FastLabelEditor(root, images, args.ai_masks, args.out, DEFAULT_LOG)
+    editor = FastLabelEditor(root, images, args.ai_masks, args.out, DEFAULT_LOG, input_root=args.input.resolve())
     if args.start:
         match = next((i for i, p in enumerate(images) if args.start.lower() in p.name.lower()), None)
         if match is None:
