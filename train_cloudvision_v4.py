@@ -19,6 +19,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 
 from cloudvision.v4_data import Example, prepare_examples
+from cloudvision.v4_checkpoint import checkpoint_key
 from train_cloudvision import TinyUNet, evaluate, letterbox_rgb_and_mask, save_example
 from train_cloudvision_v2 import cloud_loss, is_degenerate
 from run_competition_demo import predict_mask
@@ -112,16 +113,22 @@ def _validate_arguments(args) -> None:
         raise ValueError("Укажи learning rate между 0 и 0.01")
     if args.device == "cuda" and not torch.cuda.is_available():
         raise ValueError("CUDA недоступна в текущем PyTorch")
-    if args.model.resolve() == args.start_checkpoint.resolve():
+    checkpoints = [args.model] + ([args.mask_model] if args.mask_model is not None else [])
+    resolved_checkpoints = [path.resolve() for path in checkpoints]
+    if len(set(resolved_checkpoints)) != len(resolved_checkpoints):
+        raise ValueError("--model и --mask-model должны иметь разные пути")
+    if args.start_checkpoint.resolve() in resolved_checkpoints:
         raise ValueError("Модель v4 должна сохраняться отдельно от старой v3!")
-    if args.model.is_file() and not args.overwrite:
-        raise FileExistsError(f"Модель уже существует: {args.model}. Укажи другой --model или --overwrite")
+    for checkpoint_path in checkpoints:
+        if checkpoint_path.is_file() and not args.overwrite:
+            raise FileExistsError(
+                f"Модель уже существует: {checkpoint_path}. Укажи другой путь вместо --overwrite")
     if (args.out / "training_history.csv").exists() and not args.overwrite:
         raise FileExistsError(f"История обучения уже существует: {args.out}. Укажи другой --out или --overwrite")
     sources = [args.images.resolve(), args.verified.resolve()]
     if not args.no_old_train:
         sources.extend([args.old_images.resolve(), args.old_masks.resolve()])
-    for path in (args.model.resolve(), args.out.resolve()):
+    for path in (*resolved_checkpoints, args.out.resolve()):
         if any(path == src or path.is_relative_to(src) for src in sources):
             raise ValueError(f"Нельзя записывать модель или отчёты внутрь папок исходных данных: {path}")
 
@@ -162,11 +169,14 @@ def train(args) -> dict[str, float]:
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     args.out.mkdir(parents=True, exist_ok=True)
-    args.model.parent.mkdir(parents=True, exist_ok=True)
+    checkpoints = {"area": args.model}
+    if args.mask_model is not None:
+        checkpoints["mask"] = args.mask_model
+    for checkpoint_path in checkpoints.values():
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
     _write_csv(args.out / "baseline_v3_validation_predictions.csv", old_rows)
     history = []
-    best_key = None
-    best_epoch = 0
+    best = {objective: (None, 0) for objective in checkpoints}
     stale_epochs = 0
 
     from collections import Counter
@@ -192,70 +202,98 @@ def train(args) -> dict[str, float]:
         metrics, rows = evaluate(model, val_loader, device)
         for row, example in zip(rows, parts["val"]):
             row["image"] = example.image_name
-        # Prefer a meaningful cloud-area estimate; break MAE ties by the 75% rule.
-        key = (int(is_degenerate(rows)), metrics["mae_pp"],
-               -metrics["decision_accuracy"], -metrics["mean_iou"])
+        # Independent selection for cloud percentage error and pixel mask overlap.
+        # Epoch ranking is on the same letterboxed VAL for both objectives;
+        # the final operator-resolution evaluation is reported separately.
+        degenerate = is_degenerate(rows)
         history.append({
             "epoch": epoch,
             "train_loss": round(accumulated / len(train_ds), 5),
             "val_mae_pp": round(metrics["mae_pp"], 3),
             "val_iou": round(metrics["mean_iou"], 4),
             "val_decision_accuracy": round(metrics["decision_accuracy"], 4),
-            "degenerate": int(is_degenerate(rows)),
+            "degenerate": int(degenerate),
         })
         _write_csv(args.out / "training_history.csv", history)
         print(f"Эпоха {epoch:02d}/{args.epochs}: loss={history[-1]['train_loss']:.4f} | "
               f"VAL MAE={metrics['mae_pp']:.2f} п.п. | IoU={metrics['mean_iou']:.3f} | "
               f"решения={metrics['decision_accuracy']:.1%}"
-              + (" [ВЫРОЖДЕННЫЙ ПРОГНОЗ]" if is_degenerate(rows) else ""), flush=True)
-        if best_key is None or key < best_key:
-            best_key = key
-            best_epoch = epoch
-            stale_epochs = 0
+              + (" [ВЫРОЖДЕННЫЙ ПРОГНОЗ]" if degenerate else ""), flush=True)
+        improved = False
+        for objective, destination in checkpoints.items():
+            key = checkpoint_key(metrics, degenerate, objective)
+            current_key, _ = best[objective]
+            if current_key is not None and key >= current_key:
+                continue
             torch.save({
                 "state_dict": model.state_dict(),
                 "size": args.size,
                 "seed": args.seed,
                 "best_epoch": epoch,
                 "threshold": 0.5,
-                "selection": "policy",  # compatible with existing competition inference
+                "selection": "policy",  # works with run_batch_v4.py
                 "version": 4,
-                "selection_metric": "validation MAE; decision accuracy tie-break",
+                "v4_variant": objective,
+                "selection_metric": (
+                    "validation MAE; decision accuracy and IoU tie-break"
+                    if objective == "area" else
+                    "validation IoU; MAE and decision accuracy tie-break"
+                ),
                 "warm_start": str(args.start_checkpoint.name),
                 "new_train_count": counts["new"],
                 "old_train_count": counts["old"],
-            }, args.model)
+            }, destination)
+            best[objective] = (key, epoch)
+            improved = True
+            print(f"  Новый лучший checkpoint ({objective}): эпоха {epoch}")
+        if improved:
+            stale_epochs = 0
         else:
             stale_epochs += 1
             if stale_epochs >= args.patience:
-                print(f"Ранняя остановка: {args.patience} эпох без улучшения на VAL")
+                print(f"Ранняя остановка: {args.patience} эпох без улучшения любого из критериев")
                 break
 
-    best = torch.load(args.model, map_location=device, weights_only=True)
-    model.load_state_dict(best["state_dict"])
-    metrics, rows = evaluate_originals(model, parts["val"], args.size, device)
-    _write_csv(args.out / "validation_predictions_v4.csv", rows)
-    _write_csv(args.out / "model_comparison.csv", [
+    comparison = [
         {"model": "v3-policy", "best_epoch": checkpoint.get("best_epoch", ""),
          "val_mae_pp": round(old_metrics["mae_pp"], 3),
          "val_iou": round(old_metrics["mean_iou"], 4),
-         "val_decision_accuracy": round(old_metrics["decision_accuracy"], 4)},
-        {"model": "v4-policy", "best_epoch": best_epoch,
-         "val_mae_pp": round(metrics["mae_pp"], 3),
-         "val_iou": round(metrics["mean_iou"], 4),
-         "val_decision_accuracy": round(metrics["decision_accuracy"], 4)},
-    ])
-    model.eval()
-    for index in range(min(4, len(val_ds))):
-        example = parts["val"][index]
-        dest = args.out / "validation_previews" / (Path(example.image_name).stem + "_comparison.jpg")
-        save_example(model, val_ds, index, device, dest)
-    print(f"Лучшая эпоха v4: {best_epoch} | MAE {metrics['mae_pp']:.2f} п.п. | "
-          f"IoU {metrics['mean_iou']:.3f} | решения {metrics['decision_accuracy']:.1%}")
-    print("Модель:", args.model)
+         "val_decision_accuracy": round(old_metrics["decision_accuracy"], 4)}
+    ]
+    results = {}
+    for objective, destination in checkpoints.items():
+        chosen = torch.load(destination, map_location=device, weights_only=True)
+        model.load_state_dict(chosen["state_dict"])
+        metrics, rows = evaluate_originals(model, parts["val"], args.size, device)
+        results[objective] = metrics
+        if objective == "area":
+            _write_csv(args.out / "validation_predictions_v4.csv", rows)
+            preview_dir = args.out / "validation_previews"
+        else:
+            _write_csv(args.out / "validation_predictions_v4_mask.csv", rows)
+            preview_dir = args.out / "validation_previews_mask"
+        comparison.append({
+            "model": "v4-" + objective,
+            "best_epoch": chosen["best_epoch"],
+            "val_mae_pp": round(metrics["mae_pp"], 3),
+            "val_iou": round(metrics["mean_iou"], 4),
+            "val_decision_accuracy": round(metrics["decision_accuracy"], 4),
+        })
+        model.eval()
+        for index in range(min(4, len(val_ds))):
+            example = parts["val"][index]
+            dest = preview_dir / (Path(example.image_name).stem + "_comparison.jpg")
+            save_example(model, val_ds, index, device, dest)
+        print(f"v4-{objective}: эпоха {chosen['best_epoch']} | "
+              f"MAE {metrics['mae_pp']:.2f} п.п. | "
+              f"IoU {metrics['mean_iou']:.3f} | "
+              f"решения {metrics['decision_accuracy']:.1%}")
+        print("Модель:", destination)
+    _write_csv(args.out / "model_comparison.csv", comparison)
     print("Сравнение:", args.out / "model_comparison.csv")
+    print("Метрики выше получены в исходном разрешении VAL.")
     print("TEST не читался; старый v3 checkpoint не изменялся.")
-    return metrics
+    return results["area"]
 
 
 def main() -> None:
@@ -271,6 +309,8 @@ def main() -> None:
     p.add_argument("--start-checkpoint", type=Path,
                    default=ROOT / "models/cloudvision_unet_v3_policy.pt")
     p.add_argument("--model", type=Path, default=ROOT / "models/cloudvision_unet_v4_policy.pt")
+    p.add_argument("--mask-model", type=Path, default=None,
+                   help="Дополнительно сохранять лучшую v4 по IoU в отдельный checkpoint")
     p.add_argument("--out", type=Path, default=ROOT / "reports/training_v4")
     p.add_argument("--size", type=int, default=256)
     p.add_argument("--epochs", type=int, default=25)
