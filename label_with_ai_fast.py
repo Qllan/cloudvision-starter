@@ -290,7 +290,7 @@ class FastLabelEditor:
                     "Подтверди, что ты внимательно проверил кадр и облаков действительно нет. Сохранить 0%?",
                     parent=self.root):
                 return
-        elif self.ai_path is None and not self.modified:
+        elif not self.blind and self.ai_path is None and not self.modified:
             if not messagebox.askyesno("Нет прогноза ИИ",
                 "На этом снимке отсутствует маска ИИ. Сохранить пустую маску как ручную разметку?",
                 parent=self.root):
@@ -369,8 +369,11 @@ def main() -> None:
     if args.blind:
         if args.manifest is None or args.splits != "test":
             parser.error("Слепая разметка разрешена только с --manifest и --splits test")
-        if args.out.resolve() == DEFAULT_OUTPUT.resolve():
-            parser.error("Для --blind укажи отдельный --out, например data/test_verified_v4")
+        if args.out.resolve() in {
+            DEFAULT_OUTPUT.resolve(), (ROOT / "data/verified_v4").resolve(),
+            (ROOT / "reports/labels").resolve(),
+        }:
+            parser.error("Для --blind используй отдельный --out data/test_verified_v4, не TRAIN-маски")
         if args.out.resolve().is_relative_to(args.input.resolve()):
             parser.error("Для --blind папка --out не должна находиться внутри исходных снимков")
     if not args.input.is_dir():
