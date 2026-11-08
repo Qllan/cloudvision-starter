@@ -21,6 +21,7 @@ from cloudvision.rules import should_delete
 
 EXTENSIONS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp"}
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS images (
     source_id TEXT NOT NULL,
     relative_path TEXT NOT NULL,
@@ -116,6 +117,12 @@ def run_batch(
     stats = {"found": len(files), "processed": 0, "skipped": 0, "failed": 0}
     with sqlite3.connect(output / "progress.sqlite3") as db:
         db.executescript(SCHEMA)
+        registered = db.execute("SELECT value FROM metadata WHERE key='source_id'").fetchone()
+        if registered and registered[0] != source_id:
+            raise ValueError("Эта папка отчётов уже используется для другого датасета. Укажи другой --out")
+        if not registered:
+            db.execute("INSERT INTO metadata VALUES ('source_id', ?)", (source_id,))
+            db.commit()
         for index, path in enumerate(files, 1):
             relative = path.relative_to(source)
             rel = relative.as_posix()
