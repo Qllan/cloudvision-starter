@@ -100,6 +100,28 @@ class OperatorReportV4Tests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "бинарной"):
             read_batch_report(self.images, self.batch)
 
+    def test_rounded_csv_at_threshold_respects_exact_mask(self):
+        # 750001/1000000 = 75.0001%; CSV rounds to "75.000".
+        name = self.names[0]
+        Image.new("RGB", (1000, 1000), "navy").save(self.images / name)
+        mask = Image.new("L", (1000, 1000), 0)
+        mask.putdata([255] * 750001 + [0] * 249999)
+        mask.save(self.batch / self.masks[0])
+        self.percentages[0] = 75.000
+        # Keep the true (>75%) decision despite rounding in the CSV.
+        path = self.batch / "operator_preview.csv"
+        with path.open("w", encoding="utf-8-sig", newline="") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(["исходный_файл", "облачность_%", "решение_по_75%", "маска", "фактическое_действие"])
+            for i, (rel, mask_rel, pct) in enumerate(
+                    zip(self.names, self.masks, self.percentages)):
+                decision = "ОТСЕЯТЬ" if i == 0 else (
+                    "ОТСЕЯТЬ" if pct > 75 else "СОХРАНИТЬ")
+                writer.writerow([rel, f"{pct:.3f}", decision, mask_rel,
+                                 "ТОЛЬКО ПРЕДПРОСМОТР"])
+        rows = read_batch_report(self.images, self.batch)
+        self.assertEqual(rows[0]["decision"], "ОТСЕЯТЬ")
+
     def test_outputs_cannot_be_written_into_originals_or_masks(self):
         with self.assertRaises(ValueError):
             build_report(self.images, self.batch, self.images / "reports")
