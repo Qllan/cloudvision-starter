@@ -9,7 +9,8 @@ import numpy as np
 from PIL import Image
 
 from cloudvision.batch import run_batch
-from cloudvision.selection import read_manifest, scene_group, select_samples, write_manifest
+from cloudvision.selection import (missing_verified_images, read_manifest, scene_group,
+                                   select_samples, write_manifest)
 
 
 class SelectionV4Tests(unittest.TestCase):
@@ -79,6 +80,20 @@ class SelectionV4Tests(unittest.TestCase):
                 "2025-09-01_12-01-00_SXC3-240_1.jpg"}
         rows = select_samples(self.images, count=10, seed=42, excluded=seen)
         self.assertTrue(all(r["relative_path"] not in seen for r in rows))
+
+    def test_missing_only_respects_verified_masks_and_nested_paths(self):
+        folder = self.images / "nested"
+        folder.mkdir()
+        nested = folder / "2025-09-21_12-00-00_SXC3-240_1.jpg"
+        Image.new("RGB", (32, 32)).save(nested)
+        choices = [nested, self.images / "2025-09-01_12-00-00_SXC3-240_0.jpg"]
+        destination = self.root / "verified"
+        (destination / "nested").mkdir(parents=True)
+        Image.new("L", (32, 32), 0).save(
+            destination / "nested" / "2025-09-21_12-00-00_SXC3-240_1.png")
+        remaining = missing_verified_images(choices, self.images, destination)
+        self.assertEqual(remaining, [choices[1]])
+        self.assertEqual(missing_verified_images([choices[0]], self.images, destination), [])
 
     def test_no_fewer_than_five_scene_groups(self):
         subset = self.root / "few"
