@@ -342,11 +342,23 @@ def main() -> None:
     parser.add_argument("--ai-masks", type=Path, default=DEFAULT_AI_MASKS)
     parser.add_argument("--out", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--start", type=str, default="", help="Начать со снимка, имя которого содержит текст")
+    parser.add_argument("--manifest", type=Path, default=None, help="CSV от select_v4_samples.py")
+    parser.add_argument("--splits", choices=("train,val", "train", "val", "test", "all"), default="all")
     args = parser.parse_args()
 
     if not args.input.is_dir():
         parser.error(f"Нет папки с изображениями: {args.input}")
-    images = sorted(x.resolve() for x in args.input.rglob("*") if x.is_file() and not x.is_symlink() and x.suffix.lower() in IMAGE_EXTENSIONS)
+    if args.splits != "all" and args.manifest is None:
+        parser.error("Для --splits нужно указать --manifest")
+    if args.manifest is not None:
+        from cloudvision.selection import read_manifest
+        try:
+            selected_splits = None if args.splits == "all" else set(args.splits.split(","))
+            images = read_manifest(args.manifest, args.input, selected_splits)
+        except (FileNotFoundError, ValueError) as error:
+            parser.error(str(error))
+    else:
+        images = sorted(x.resolve() for x in args.input.rglob("*") if x.is_file() and not x.is_symlink() and x.suffix.lower() in IMAGE_EXTENSIONS)
     if not images:
         parser.error(f"Нет изображений в {args.input}")
     if not args.ai_masks.is_dir():
@@ -361,7 +373,7 @@ def main() -> None:
         editor.index = match
         editor.load_current()
     print(f"Снимков: {len(images)}. Исправления -> {args.out}")
-    print("ИИ-подсказки взяты из stage14; модель заново не запускается.")
+    print("ИИ-подсказки загружаются из --ai-masks; модель заново не запускается.")
     root.mainloop()
 
 
