@@ -12,7 +12,7 @@ from pathlib import Path
 import torch
 
 from cloudvision.batch import model_fingerprint, run_batch
-from run_competition_demo import load_checkpoint, predict_mask
+from cloudvision.inference import load_checkpoint, predict_mask
 
 ROOT = Path(__file__).resolve().parent
 
