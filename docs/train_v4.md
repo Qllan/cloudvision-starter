@@ -83,6 +83,47 @@ VAL MAE (процентных пунктов), IoU и точность реше�
 **валидационная оценка**, а не независимый тест и не доказательство
 успешной работы на всех 4207 кадрах.
 
+
+## Шаг 2а. Отдельные checkpoint по MAE и по IoU (новый эксперимент)
+
+Если обычное обучение v4 уже прошло и \`models/cloudvision_unet_v4_policy.pt\`
+создан, **не перезаписывай его**. Для одновременного выбора двух моделей
+используй отдельные имена и папку отчётов:
+
+    .\.venv\Scripts\python.exe train_cloudvision_v4.py --device cuda --epochs 25 --size 256 --batch-size 4 --model models/cloudvision_unet_v4_dual_area.pt --mask-model models/cloudvision_unet_v4_dual_mask.pt --out reports/training_v4_dual
+
+- \`--model\`: лучшая эпоха по минимальной MAE процента облачности.
+- \`--mask-model\`: лучшая эпоха по максимальной IoU облачной маски.
+- Выбор эпох для обеих моделей выполняется на одних и тех же 10 VAL:
+  во время тренировки в масштабе 256×256 с учётом letterbox и valid-маски.
+  Вырожденные предсказания (всё облака / всё не облака) имеют низкий приоритет.
+- Ранняя остановка происходит только если ни один критерий не улучшился
+  в течение \`--patience\` эпох.
+- Итоговый \`model_comparison.csv\` содержит три строки: v3 Policy, v4-area,
+  v4-mask, **все в исходном разрешении**.
+- \`validation_predictions_v4.csv\` — для v4-area;
+  \`validation_predictions_v4_mask.csv\` — для v4-mask;
+  \`validation_previews_mask/\` — изображения с масками v4-mask.
+- Оба v4 checkpoint сохраняют \`selection="policy"\` для совместимости
+  с \`run_batch_v4.py\`; поле \`v4_variant\` различает цели выбора.
+  Это не означает, что версия mask оптимизирована для порога 75%.
+
+Сравнение двух сохранённых версий на VAL **не заменяет независимый TEST**:
+модель выбирается на VAL, поэтому метрики могут быть оптимистичными.
+После изучения результатов не пересоздавай выборку и не подбирай параметры
+по TEST.
+
+Можно безопасно создать отдельные предпросмотры двух версий на *train/val*:
+
+    .\.venv\Scripts\python.exe run_batch_v4.py --input data/new_raw --out reports/preview_dual_area --model models/cloudvision_unet_v4_dual_area.pt --device cuda --manifest reports/selection_v4/selection.csv --splits train,val --limit 5
+
+    .\.venv\Scripts\python.exe run_batch_v4.py --input data/new_raw --out reports/preview_dual_mask --model models/cloudvision_unet_v4_dual_mask.pt --device cuda --manifest reports/selection_v4/selection.csv --splits train,val --limit 5
+
+Для визуальной перепроверки необычных кадров на VAL до окончательного
+выбора модели открой вручную сохранённые маски в редакторе:
+\`--start 2025-10-12_22-49-05\` и \`--start 2025-10-22_12-04-07\`.
+Исходники и прежние v3/v4 модели не затрагиваются.
+
 ## Шаг 3. Предпросмотр новой модели без удаления файлов
 
 После обучения:
