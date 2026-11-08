@@ -52,11 +52,15 @@ class BatchV4Tests(unittest.TestCase):
     def test_model_fingerprint_distinguishes_v3_v4_without_changing_old_id(self):
         old = self.root / "cloudvision_unet_v3_policy.pt"
         new = self.root / "cloudvision_unet_v4_policy.pt"
+        v5 = self.root / "cloudvision_unet_v5_pilot.pt"
         old.write_bytes(b"old-checkpoint")
         new.write_bytes(b"new-checkpoint")
+        v5.write_bytes(b"v5-checkpoint")
         self.assertTrue(model_fingerprint(old).startswith("unet-policy-v3:"))
         self.assertTrue(model_fingerprint(new).startswith("unet-policy-v4:"))
+        self.assertTrue(model_fingerprint(v5).startswith("unet-policy-v5:"))
         self.assertNotEqual(model_fingerprint(old), model_fingerprint(new))
+        self.assertNotEqual(model_fingerprint(new), model_fingerprint(v5))
 
     def test_missing_cached_mask_reprocessed(self):
         run_batch(self.images, self.output, "model-A", self.predict, log=lambda _: None)
