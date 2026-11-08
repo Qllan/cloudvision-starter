@@ -97,6 +97,24 @@ TEST остаётся отдельно.
 
 Подробнее: [дообучение v4 и проверка на VAL](docs/train_v4.md).
 
+## Независимый финальный TEST (5 снимков)
+
+Веса v4 уже выбраны по VAL. Чтобы честно проверить качество на пяти
+отложенных TEST, **сначала зафиксируй модели**, затем вручную разметь
+TEST без AI-масок, и только потом сравни их результаты.
+
+    .\.venv\Scripts\python.exe evaluate_v4_holdout.py --freeze
+
+    .\.venv\Scripts\python.exe label_with_ai_fast.py --input data/new_raw --manifest reports/selection_v4/selection.csv --splits test --blind --out data/test_verified_v4
+
+После сохранения пяти новых эталонных масок:
+
+    .\.venv\Scripts\python.exe evaluate_v4_holdout.py --evaluate --device cuda
+
+Отчёт: reports/final_test_v4/summary.csv и per_image.csv.
+Старые и новые исходные снимки, TRAIN/VAL-маски и модели не изменяются.
+Подробная инструкция: [слепой TEST и фиксация моделей](docs/final_holdout_v4.md).
+
 ## Подробная документация
 
 - [Обработка больших датасетов v4](docs/gpu_batch_v4.md)
