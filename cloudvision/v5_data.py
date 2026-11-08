@@ -26,6 +26,11 @@ class TrainPair:
     split: str
     source: str
 
+    @property
+    def image_name(self) -> str:
+        """Match the existing CloudVision train/evaluate dataset interface."""
+        return self.relative_path
+
 
 def _resolve(path: Path, base: Path) -> Path:
     resolved = (base / path).resolve()
