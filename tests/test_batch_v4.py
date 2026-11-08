@@ -6,7 +6,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-from cloudvision.batch import discover_images, run_batch
+from cloudvision.batch import discover_images, model_fingerprint, run_batch
 
 
 class BatchV4Tests(unittest.TestCase):
@@ -48,6 +48,15 @@ class BatchV4Tests(unittest.TestCase):
         self.assertEqual(again["skipped"], 2)
         changed_model = run_batch(self.images, self.output, "model-B", self.predict, log=lambda _: None)
         self.assertEqual(changed_model["processed"], 2)
+
+    def test_model_fingerprint_distinguishes_v3_v4_without_changing_old_id(self):
+        old = self.root / "cloudvision_unet_v3_policy.pt"
+        new = self.root / "cloudvision_unet_v4_policy.pt"
+        old.write_bytes(b"old-checkpoint")
+        new.write_bytes(b"new-checkpoint")
+        self.assertTrue(model_fingerprint(old).startswith("unet-policy-v3:"))
+        self.assertTrue(model_fingerprint(new).startswith("unet-policy-v4:"))
+        self.assertNotEqual(model_fingerprint(old), model_fingerprint(new))
 
     def test_missing_cached_mask_reprocessed(self):
         run_batch(self.images, self.output, "model-A", self.predict, log=lambda _: None)
