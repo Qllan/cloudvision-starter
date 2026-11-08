@@ -210,3 +210,21 @@ def write_manifest(path: Path, rows: list[dict[str, str]]) -> None:
         writer = csv.DictWriter(f, fieldnames=MANIFEST_FIELDS)
         writer.writeheader()
         writer.writerows(rows)
+
+
+def missing_verified_images(images: list[Path], input_root: Path,
+                            verified_dir: Path) -> list[Path]:
+    """Return selected images without saved hand-verified masks.
+
+    The output names match FastLabelEditor.current_output, including folders.
+    No image or mask data is opened, changed or deleted.
+    """
+    source = input_root.resolve()
+    dest = verified_dir.resolve()
+    remaining = []
+    for image in images:
+        relative = image.resolve().relative_to(source)
+        label = dest / relative.with_suffix(".png")
+        if not label.is_file():
+            remaining.append(image)
+    return remaining
