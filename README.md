@@ -129,6 +129,21 @@ HTML показывает RGB и наложение маски ИИ; CSV выд�
 Ни один оригинал не удаляется. Эти предупреждения не гарантируют, что
 непомеченные кадры распознаны правильно.
 
+
+Для исправления ложных облаков на суше/воде используй **операторскую
+очередь** — она включает все 30 пилотных кадров, начиная с приоритетных:
+
+    .\.venv\Scripts\python.exe label_with_ai_fast.py --input data/new_raw --ai-masks reports/competition_pilot_v4/masks --out data/pilot_verified_v4 --review-csv reports/competition_pilot_v4/operator_review/operator_review.csv
+
+После сохранения вручную проверенных масок пересоздай отчёт:
+
+    .\.venv\Scripts\python.exe build_operator_report_v4.py --input data/new_raw --batch reports/competition_pilot_v4 --verified data/pilot_verified_v4
+
+В HTML теперь отдельно отображаются **решение нейросети** и **статус
+ручной проверки**; отсутствие автоматических флагов не означает
+проверенность. CSV содержит расхождение с вручную проверенной маской
+для тех кадров, где она сохранена. Старые TRAIN/VAL/TEST не изменяются.
+
 Подробнее: [операторский отчёт v4](docs/operator_review_v4.md).
 
 ## Подробная документация
