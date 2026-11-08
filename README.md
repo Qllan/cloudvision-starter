@@ -1,244 +1,87 @@
-# CloudVision AI 🛰️
+# CloudVision AI — СПУТНИКС 🛰️
 
-Проект по кейсу компании **СПУТНИКС** для SK Kids Challenge: анализ облачности
-спутниковых изображений с помощью нейросети, расчёт процента облачности,
-сортировка по правилу **строго более 75% — отсев**, отчёт оператору.
+**Конкурсный прототип сегментации облаков на спутниковых снимках** (Python, PyTorch, компактная U-Net, CUDA, SQLite).
 
-> Исследовательский прототип, не проверенная промышленная система. Модель иногда
-> ошибается, поэтому автоматическое удаление оригинальных спутниковых снимков запрещено.
+**Задача:** оценить облачность каждого кадра и предложить **ОТСЕЯТЬ**, только если облака занимают **строго больше 75%** площади. Ровно 75% → **СОХРАНИТЬ**.
 
-## Что уже работает
+> ⚠️ Модель остаётся исследовательской. Она ошибается на тонкой облачности и рельефе. Решения — рекомендации оператору; **исходные фотографии автоматически не удаляем**.
 
-- Обучение компактной U-Net (train_cloudvision_v3.py) и сравнение Area / Policy.
-- Предпросмотр результатов сортировки (run_competition_demo.py).
-- Быстрый редактор ручной разметки (label_with_ai_fast.py).
-- Эксперименты и тесты предыдущих этапов.
+## Что показать жюри
 
-## Новое в ветке v4: GPU + пакетная обработка
+1. Оригинальный спутниковый снимок и розовая маска облаков.
+2. Вычисленный процент и предложение «СОХРАНИТЬ / ОТСЕЯТЬ».
+3. Пакетный запуск на CUDA с восстановлением прогресса после прерывания.
+4. Ручную проверку и ограничения на независимых данных.
 
-run_batch_v4.py обрабатывает **новые снимки по одному**, использует CUDA при
-наличии совместимого PyTorch, рекурсивно находит изображения, сохраняет
-маски и журнал прогресса (SQLite). Повторный запуск пропускает готовые маски,
-если исходный файл и модель не изменились. **Файлы не удаляются и не копируются.**
+### Зафиксированные результаты
 
-### Windows 11 — первые пять снимков
+| Проверка | v4 Policy | v5 Pilot | Что важно |
+|---|---:|---:|---|
+| VAL, 10 снимков | MAE 3,455 п.п. | MAE 3,316 п.п. | Использовалась для выбора эпох |
+| Независимый TEST, 24 снимка | MAE 16,63 п.п.; 23/24 решений | MAE 16,43 п.п.; 23/24 | **0** снимков с эталоном >75% |
+| Целевой *cloud-heavy challenge*, 13 сцен | 3 из 7 настоящих отсевов | 3 из 7 | Специально выбранные сложные кадры, **не** случайная выборка |
 
-Понадобятся установленный Python, PyTorch с CUDA (в совместимом окружении),
-Pillow, NumPy и веса models/cloudvision_unet_v3_policy.pt.
-Инструкции по PyTorch: https://pytorch.org/get-started/locally/
+В целевом challenge обе модели **пропустили 4 из 7** отсеваемых кадров. Это причина обязательного ручного контроля. Предыдущее сравнение v3/v4 на пяти TEST также сохранено отдельно. Не смешивать метрики разных выборок.
 
-    .\.venv\Scripts\python.exe -c "import torch; print('CUDA:', torch.cuda.is_available())"
-    .\.venv\Scripts\python.exe run_batch_v4.py --input data/new_raw --out reports/batch_v4_new --device cuda --limit 5
+## Быстрый запуск на Windows
 
-Чтобы продолжить и обработать остальные снимки, запусти ту же команду без
---limit 5. Если прервёшь запуск, последующий старт продолжит работу.
-Используй **отдельную папку --out для каждого исходного датасета**.
+В корне репозитория:
 
-    .\.venv\Scripts\python.exe run_batch_v4.py --input data/new_raw --out reports/batch_v4_new --device cuda
+~~~powershell
+# Проверить, доступна ли видеокарта:
+.\.venv\Scripts\python.exe -c "import torch; print(torch.cuda.is_available())"
 
-Результаты:
-- reports/batch_v4_new/operator_preview.csv — прогноз облачности и решение;
-- reports/batch_v4_new/masks/ — бинарные маски по исходным подпапкам;
-- reports/batch_v4_new/progress.sqlite3 — прогресс после каждого кадра.
+# Создать безопасный пилот на CUDA. Фото не перемещаются и не удаляются:
+.\.venv\Scripts\python.exe run_batch_v4.py --input data/new_raw --model models/cloudvision_unet_v4_policy.pt --out reports/demo_for_jury --device cuda --limit 30
 
-Для исправления предсказаний в быстром редакторе:
+# Создать операторскую HTML-галерею с наложениями:
+.\.venv\Scripts\python.exe build_operator_report_v4.py --input data/new_raw --batch reports/demo_for_jury
+Start-Process .\reports\demo_for_jury\operator_review\index.html
+~~~
 
-    .\.venv\Scripts\python.exe label_with_ai_fast.py --input data/new_raw --ai-masks reports/batch_v4_new/masks --out data/verified_new
+Для уже размеченного пилота используй \`--verified data/pilot_verified_v4\` в \`build_operator_report_v4.py\`. Скрипт не выдаёт AI-маски за подтверждённые человеком.
 
-Не загружай изображения, разметку и контрольные точки модели в GitHub.
+### Диагностика самого сложного cloud-heavy кадра
 
-## Улучшение качества на новом датасете СПУТНИКС (v4)
+~~~powershell
+.\.venv\Scripts\python.exe compare_cloud_heavy_models.py --device cuda
+Start-Process .\reports\cloud_heavy_case_review\2025-11-30_22-18-23_SXC3-2334_1_v4_v5_comparison.jpg
+~~~
 
-После проверки пяти RGB-снимков текущая U-Net v3 показала заметные ложные
-срабатывания на море и поверхности. Для улучшения качества сначала выбираем
-50 **разнообразных** снимков, а не обрабатываем все 4207 без проверки.
+Две замороженные модели и список TEST сверяются по SHA-256, а оригиналы и исходные оценки остаются неизменными.
 
-    .\.venv\Scripts\python.exe select_v4_samples.py --input data/new_raw --count 50 --out reports/selection_v4/selection.csv
+## Основные файлы
 
-Маски строим только для TRAIN и VAL. Новую независимую TEST-группу не
-используем для выбора модели:
+| Задача | Скрипт |
+|---|---|
+| Безопасная пакетная обработка, SQLite и повторный запуск | \`run_batch_v4.py\` |
+| Загрузка весов и инференс (без операций удаления) | \`cloudvision/inference.py\` |
+| Операторский HTML/CSV-отчёт | \`build_operator_report_v4.py\` |
+| Редактор ручных масок | \`label_with_ai_fast.py\` |
+| Отчёт для защиты из зафиксированных CSV | \`build_competition_report.py\` |
+| Сравнение замороженных v4/v5 на одном снимке | \`compare_cloud_heavy_models.py\` |
+| Обучение v4/v5 (для воспроизведения экспериментов) | \`train_cloudvision_v4.py\`, \`train_cloudvision_v5.py\` |
 
-    .\.venv\Scripts\python.exe run_batch_v4.py --input data/new_raw --out reports/batch_v4_selected --manifest reports/selection_v4/selection.csv --splits train,val --device cuda
+Сохранены и вспомогательные исторические скрипты, которые нужны для воспроизведения экспериментов. Промежуточные \`README_STAGE*\` удалены из актуального дерева репозитория: они доступны в истории Git.
 
-Проверяем и исправляем маски в редакторе:
+## Документация
 
-    .\.venv\Scripts\python.exe label_with_ai_fast.py --input data/new_raw --ai-masks reports/batch_v4_selected/masks --out data/verified_v4 --manifest reports/selection_v4/selection.csv --splits train,val
+- [Конкурсный HTML-отчёт](docs/competition_report.md)
+- [Обработка с CUDA](docs/gpu_batch_v4.md)
+- [Операторская проверка](docs/operator_review_v4.md)
+- [Правила независимого TEST](docs/final_holdout_v4.md)
+- [Проверка сложной облачности](docs/cloud_heavy_challenge.md)
+- [Обучение v5](docs/v5_training.md)
+- [Обслуживание репозитория](docs/repository_maintenance.md)
 
-Подробнее: [отбор и разметка 50 кадров](docs/label_v4_samples.md).
+## Тесты и безопасность
 
-## Обучение U-Net v4 на RTX 3060 Ti
+~~~powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_batch_v4.py" -v
+.\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_inference_boundary.py" -v
+git status --short
+~~~
 
-После завершения ручной разметки 45 TRAIN/VAL снимков (35 TRAIN, 10 VAL)
-можно дообучить модель v3 Policy на проверенных масках. Дополнительно
-используется только старый TRAIN; старые и новые TEST не открываются.
+CI запускает проверки без обучения моделей на **Windows и Linux**.
 
-Сначала короткая проверка в отдельной модели:
-
-    .\.venv\Scripts\python.exe train_cloudvision_v4.py --device cuda --epochs 2 --model models/cloudvision_unet_v4_smoke.pt --out reports/training_v4_smoke
-
-После её успешного завершения:
-
-    .\.venv\Scripts\python.exe train_cloudvision_v4.py --device cuda --epochs 25 --size 256 --batch-size 4
-
-Новый checkpoint: models/cloudvision_unet_v4_policy.pt.
-Сравнение v3 и v4 на десяти проверочных снимках: reports/training_v4/model_comparison.csv.
-Старый checkpoint v3 остаётся неизменным. Если старое разбиение
-отсутствует, допустим отдельный эксперимент с --no-old-train.
-
-Если v4 уже обучена и нужно сравнить **две независимые цели выбора эпохи**
-(MAE процента облачности и IoU маски), запускай отдельный эксперимент без
-перезаписи старого checkpoint:
-
-    .\.venv\Scripts\python.exe train_cloudvision_v4.py --device cuda --epochs 25 --size 256 --batch-size 4 --model models/cloudvision_unet_v4_dual_area.pt --mask-model models/cloudvision_unet_v4_dual_mask.pt --out reports/training_v4_dual
-
-Итог: три строки сравнения v3 / v4-area / v4-mask в
-reports/training_v4_dual/model_comparison.csv. Выбор эпох делается по VAL,
-TEST остаётся отдельно.
-
-Подробнее: [дообучение v4 и проверка на VAL](docs/train_v4.md).
-
-## Независимый финальный TEST (5 снимков)
-
-Веса v4 уже выбраны по VAL. Чтобы честно проверить качество на пяти
-отложенных TEST, **сначала зафиксируй модели**, затем вручную разметь
-TEST без AI-масок, и только потом сравни их результаты.
-
-    .\.venv\Scripts\python.exe evaluate_v4_holdout.py --freeze
-
-    .\.venv\Scripts\python.exe label_with_ai_fast.py --input data/new_raw --manifest reports/selection_v4/selection.csv --splits test --blind --out data/test_verified_v4
-
-После сохранения пяти новых эталонных масок:
-
-    .\.venv\Scripts\python.exe evaluate_v4_holdout.py --evaluate --device cuda
-
-Отчёт: reports/final_test_v4/summary.csv и per_image.csv.
-Старые и новые исходные снимки, TRAIN/VAL-маски и модели не изменяются.
-Подробная инструкция: [слепой TEST и фиксация моделей](docs/final_holdout_v4.md).
-
-## Операторская галерея для пилота (30 снимков)
-
-После безопасного запуска \`run_batch_v4.py\` с выводом в
-\`reports/competition_pilot_v4\` можно создать отчёт без повторного
-инференса:
-
-    .\.venv\Scripts\python.exe build_operator_report_v4.py --input data/new_raw --batch reports/competition_pilot_v4
-    Start-Process .\reports\competition_pilot_v4\operator_review\index.html
-
-HTML показывает RGB и наложение маски ИИ; CSV выделяет снимки возле
-конкурсного порога, почти 0% и потенциальные отсеваемые кадры.
-Ни один оригинал не удаляется. Эти предупреждения не гарантируют, что
-непомеченные кадры распознаны правильно.
-
-
-Для исправления ложных облаков на суше/воде используй **операторскую
-очередь** — она включает все 30 пилотных кадров, начиная с приоритетных:
-
-    .\.venv\Scripts\python.exe label_with_ai_fast.py --input data/new_raw --ai-masks reports/competition_pilot_v4/masks --out data/pilot_verified_v4 --review-csv reports/competition_pilot_v4/operator_review/operator_review.csv
-
-После сохранения вручную проверенных масок пересоздай отчёт:
-
-    .\.venv\Scripts\python.exe build_operator_report_v4.py --input data/new_raw --batch reports/competition_pilot_v4 --verified data/pilot_verified_v4
-
-В HTML теперь отдельно отображаются **решение нейросети** и **статус
-ручной проверки**; отсутствие автоматических флагов не означает
-проверенность. CSV содержит расхождение с вручную проверенной маской
-для тех кадров, где она сохранена. Старые TRAIN/VAL/TEST не изменяются.
-
-Подробнее: [операторский отчёт v4](docs/operator_review_v4.md).
-
-## Обучение v5 с учётом 30 проверенных пилотных снимков
-
-После пилотного аудита U-Net v4 (30 ручных масок, 3 пропущенных отсева)
-подготовлено дообучение на исправленных TRAIN с отдельным новым TEST.
-Оно **не использует** прежние TEST для подбора весов.
-
-Сначала проверить пересечения с прежними TRAIN/VAL/TEST и создать
-фиксированный набор из 24 ещё не использованных групп сцен:
-
-    .\.venv\Scripts\python.exe prepare_v5_plan.py
-    .\.venv\Scripts\python.exe select_v5_holdout.py --count 24
-
-Только если обе команды завершились без ошибок — проверить CUDA:
-
-    .\.venv\Scripts\python.exe train_cloudvision_v5.py --device cuda --epochs 2 --model models/cloudvision_unet_v5_smoke.pt --out reports/training_v5_smoke
-
-После пробного обучения отдельный запуск v5:
-
-    .\.venv\Scripts\python.exe train_cloudvision_v5.py --device cuda --epochs 18 --size 256 --batch-size 4
-
-Новая модель сохраняется в \`models/cloudvision_unet_v5_pilot.pt\`,
-старые v3 и v4 неизменны. Прежняя v4 VAL используется только для выбора
-эпохи; новый \`reports/v5/holdout_manifest.csv\` **не открывается как
-изображения** во время тренировки. После фиксации v5 новый TEST
-размечается независимо, без подсказки AI.
-
-Подробнее: [аудит, обучение и независимая проверка v5](docs/v5_training.md).
-
-## Итоговый конкурсный отчёт: v3 / v4 / v5
-
-После завершения слепой проверки 24 новых снимков собран самостоятельный
-отчёт для защиты. Он сравнивает два независимых TEST (5 и 24 снимка),
-10 VAL и операторский пилот из 30 кадров, показывает типичные ошибки,
-график обучения и ограничения правила >75%.
-
-    .\.venv\Scripts\python.exe build_competition_report.py
-    Start-Process .\reports\competition_final\cloudvision_report.html
-
-Отчёт офлайн и **ничего не удаляет**. Для печати в браузере:
-**Печать → Сохранить как PDF**. Если готовый HTML уже существует,
-скрипт не заменяет его; укажи новое \`--out\` для следующей версии.
-
-**Вывод из независимого TEST 24:** MAE v4=16.63 п.п., v5=16.43 п.п.;
-IoU v4=0.48290, v5=0.48222; обе модели — 23/24 правильных действий.
-На этом TEST не было эталонов с облачностью >75%, поэтому надёжность
-отсева таких кадров **не подтверждена**. Исторические TEST не
-используем для дальнейшей настройки checkpoint.
-
-Подробнее: [отчёт и конкурсная демонстрация](docs/competition_report.md).
-
-## Отдельная проверка сильно облачных сцен (>75%)
-
-Два независимых TEST (5 и 24 фото) не содержали эталонных кадров с
-облачностью >75%. Для проверки правила отсева предусмотрен отдельный
-**targeted challenge**, не случайный TEST:
-
-    .\.venv\Scripts\python.exe prepare_cloud_heavy_challenge.py browse --count 100
-    Start-Process .\reports\v5\cloud_heavy_pool\index.html
-
-В галерее **только RGB**, без предсказаний ИИ. Отметь 10–15 визуально
-сильно облачных фото из разных групп дата/камера, скачай
-\`selected_cloud_heavy.txt\` в корень проекта и выполни:
-
-    .\.venv\Scripts\python.exe prepare_cloud_heavy_challenge.py freeze
-
-После этого **заморозь обе уже обученные модели до ручной разметки**.
-Полная безопасная инструкция, включая \`--blind\` и однократную
-оценку: [проверка сильно облачных сцен](docs/cloud_heavy_challenge.md).
-
-Целевой отбор по виду облаков не позволяет делать выводы о средней
-точности для всех 4207 снимков. Не удаляй исходники автоматически.
-
-## Диагностика пропущенных облаков: ручная маска vs U-Net v4/v5
-
-Для уже оценённого сильно облачного кадра можно сделать отдельное
-четырёхпанельное JPG без изменения независимого TEST:
-
-    .\.venv\Scripts\python.exe compare_cloud_heavy_models.py --device cuda
-    Start-Process .\reports\cloud_heavy_case_review\2025-11-30_22-18-23_SXC3-2334_1_v4_v5_comparison.jpg
-
-Панели: RGB / ручное розовое наложение / v4 наложение / v5 наложение.
-Перед инференсом скрипт сверит SHA-256 **замороженных** весов и challenge
-манифеста. Никакие старые отчёты, фотографии, маски и веса не
-изменяются. Это визуальная диагностика после TEST, не повторная
-проверка модели. См. [процедуру cloud-heavy challenge](docs/cloud_heavy_challenge.md).
-
-## Подробная документация
-
-- [Обработка больших датасетов v4](docs/gpu_batch_v4.md)
-- [Быстрый редактор масок](docs/fast_labeler.md)
-- [Условия и цели проекта](docs/project_plan.md)
-- [Этапы экспериментов](README_STAGE14.md)
-
-## Проверка тестов пакетного движка
-
-    .\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_batch_v4.py" -v
+\`data/\`, \`models/\`, \`reports/\`, \`checkpoints/\`, локальные маски, оригинальные фото и конкурсные итоговые файлы **не добавлять в Git**. Проект находится в ветке \`feature/gpu-batch-resume\`; \`main\` не объединять без отдельного решения.
