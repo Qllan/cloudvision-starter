@@ -76,9 +76,6 @@ def read_batch_report(images: Path, batch: Path) -> list[dict]:
             raise ValueError(f"Некорректный процент облачности: {relative}") from exc
         if not math.isfinite(percent) or not 0 <= percent <= 100:
             raise ValueError(f"Недопустимое значение облачности: {relative}")
-        decision = "ОТСЕЯТЬ" if should_delete(percent) else "СОХРАНИТЬ"
-        if item["решение_по_75%"] != decision:
-            raise ValueError(f"Решение в CSV не соответствует правилу >75%: {relative}")
         if item["фактическое_действие"] != "ТОЛЬКО ПРЕДПРОСМОТР":
             raise ValueError("Ожидался исключительно безопасный режим предпросмотра")
         with Image.open(photo) as original:
@@ -92,6 +89,11 @@ def read_batch_report(images: Path, batch: Path) -> list[dict]:
             actual_percent = 100 * counts[255] / (size[0] * size[1])
             if abs(actual_percent - percent) > 0.01:
                 raise ValueError(f"Маска и процент в CSV расходятся: {relative}")
+        # The CSV percentage is rounded to 3 decimals. A mask covering
+        # 75.0001% may display as 75.000 but must still be REJECTED.
+        decision = "ОТСЕЯТЬ" if should_delete(actual_percent) else "СОХРАНИТЬ"
+        if item["решение_по_75%"] != decision:
+            raise ValueError(f"Решение в CSV не соответствует точному правилу >75%: {relative}")
         group = scene_group(relative)
         groups[group] += 1
         notes = []
