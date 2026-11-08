@@ -64,7 +64,8 @@ def model_fingerprint(path: Path) -> str:
     with path.open("rb") as handle:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
-    return "unet-policy-v3:" + digest.hexdigest()
+    version = "v4" if "_v4_" in path.stem.casefold() else "v3"
+    return f"unet-policy-{version}:" + digest.hexdigest()
 
 
 def _save_binary_mask(mask: Image.Image, destination: Path, expected_size: tuple[int, int]) -> float:
