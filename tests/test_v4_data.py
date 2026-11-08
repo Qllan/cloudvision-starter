@@ -106,6 +106,26 @@ class V4DataTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Утечка"):
             self.build()
 
+    def test_old_manual_mask_can_be_downscaled(self):
+        """Legacy mask may be lower-res while preserving scene geometry."""
+        label = self.old_labels / self.old_rows[0]["label"]
+        Image.new("L", (8, 6), 255).save(label)  # original is 16 x 12
+        result = self.build()
+        self.assertEqual(result["train"][-1].source, "old")
+        self.assertEqual(len(result["train"]), 2)
+
+    def test_old_manual_mask_bad_aspect_ratio_is_rejected(self):
+        label = self.old_labels / self.old_rows[0]["label"]
+        Image.new("L", (8, 8), 255).save(label)
+        with self.assertRaisesRegex(ValueError, "пропорции"):
+            self.build()
+
+    def test_new_manual_mask_must_remain_native_resolution(self):
+        label = self.new_labels / self.rows[0]["relative_path"].replace(".jpg", ".png")
+        Image.new("L", (8, 6), 255).save(label)
+        with self.assertRaisesRegex(ValueError, "совпадать"):
+            self.build(with_old=False)
+
     def test_old_val_test_not_required_on_disk(self):
         items = self.build()
         self.assertEqual(len(items["train"]), 2)  # only old TRAIN file exists
