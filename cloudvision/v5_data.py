@@ -31,6 +31,15 @@ class TrainPair:
         """Match the existing CloudVision train/evaluate dataset interface."""
         return self.relative_path
 
+    @property
+    def label_path(self) -> Path:
+        """Expose the manual mask through the v4 Example interface.
+
+        V4Dataset and evaluate_originals expect .label_path, while the
+        frozen v5 preflight CSV deliberately uses the name mask_path.
+        """
+        return self.mask_path
+
 
 def _resolve(path: Path, base: Path) -> Path:
     resolved = (base / path).resolve()
