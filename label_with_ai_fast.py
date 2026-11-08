@@ -358,6 +358,8 @@ def main() -> None:
     parser.add_argument("--ai-masks", type=Path, default=DEFAULT_AI_MASKS)
     parser.add_argument("--out", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--start", type=str, default="", help="Начать со снимка, имя которого содержит текст")
+    parser.add_argument("--log", type=Path, default=None,
+                        help="Отдельный путь к журналу ручной разметки для текущего эксперимента")
     parser.add_argument("--manifest", type=Path, default=None, help="CSV от select_v4_samples.py")
     parser.add_argument("--splits", choices=("train,val", "train", "val", "test", "all"), default="all")
     parser.add_argument("--missing-only", action="store_true",
@@ -386,6 +388,8 @@ def main() -> None:
             parser.error("Для --blind используй отдельный --out data/test_verified_v4, не TRAIN-маски")
         if args.out.resolve().is_relative_to(args.input.resolve()):
             parser.error("Для --blind папка --out не должна находиться внутри исходных снимков")
+    if args.log is not None and args.log.resolve().is_relative_to(args.input.resolve()):
+        parser.error("Журнал --log должен находиться вне папки исходных изображений")
     if not args.input.is_dir():
         parser.error(f"Нет папки с изображениями: {args.input}")
     if args.splits != "all" and args.manifest is None:
@@ -416,7 +420,8 @@ def main() -> None:
     if not args.blind and not args.ai_masks.is_dir():
         parser.error(f"Нет папки масок ИИ: {args.ai_masks}. Сначала запусти run_competition_demo.py")
     root = tk.Tk()
-    log_path = ((ROOT / "reports/test_labeling_v4/test_label_log.csv") if args.blind else
+    log_path = (args.log if args.log is not None else
+                (ROOT / "reports/test_labeling_v4/test_label_log.csv") if args.blind else
                 (ROOT / "reports/pilot_labeling_v4/pilot_label_log.csv") if args.review_csv else DEFAULT_LOG)
     editor = FastLabelEditor(root, images, args.ai_masks, args.out, log_path,
                              input_root=args.input.resolve(), blind=args.blind)
