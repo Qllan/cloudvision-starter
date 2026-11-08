@@ -371,9 +371,10 @@ def main() -> None:
     if args.review_csv is not None:
         if args.blind or args.manifest is not None or args.splits != "all":
             parser.error("--review-csv не совмещается с --blind, --manifest, --splits")
-        protected = {(ROOT / target).resolve() for target in (
-            "data/verified_v4", "data/test_verified_v4", "data/input", "reports/labels")}
-        if args.out.resolve() in protected or args.out.resolve().is_relative_to(args.input.resolve()):
+        protected = {DEFAULT_OUTPUT.resolve(), *((ROOT / target).resolve() for target in (
+            "data/verified_v4", "data/test_verified_v4", "data/input", "reports/labels"))}
+        if (any(args.out.resolve() == path or args.out.resolve().is_relative_to(path)
+                for path in protected) or args.out.resolve().is_relative_to(args.input.resolve())):
             parser.error("Для пилота укажи отдельную папку --out data/pilot_verified_v4")
     if args.blind:
         if args.manifest is None or args.splits != "test":
