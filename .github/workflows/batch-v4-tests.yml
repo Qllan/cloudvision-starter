@@ -58,6 +58,7 @@ jobs:
       - name: Checkout code and history
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.head_ref }}
           fetch-depth: 0
           persist-credentials: false
       - name: Package tracked source and Git commits
