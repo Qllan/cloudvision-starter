@@ -1,51 +1,35 @@
-# Python
+# Python / development
 .venv/
+venv/
 __pycache__/
 *.py[cod]
 .pytest_cache/
-.DS_Store
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 .vscode/
+.DS_Store
 
-# Original imagery, models, and output: keep outside GitHub
-/data/input/*
-!/data/input/.gitkeep
-/data/accepted/*
-!/data/accepted/.gitkeep
-/data/rejected/*
-!/data/rejected/.gitkeep
-/reports/*
-!/reports/.gitkeep
+# Original imagery, operator annotations, checkpoints and local reports
+/data/
+/reports/
 /models/
 /checkpoints/
-
-# Don't commit private settings
-.env
-
-
-
-# Python
-.venv/
-__pycache__/
-*.pyc
-.pytest_cache/
-
-# Satellite datasets and annotations
-data/
-
-# AI models
-models/
 *.pt
 *.pth
 *.safetensors
 
-# Generated reports
-reports/
+# Local deliverables and private operator filenames
+/presentation/*.pptx
+/presentation/*.pdf
+/selected_cloud_heavy.txt
 
-# Secrets
+# Credentials and logs
 .env
 .env.*
 !.env.example
-
-# Logs
 *.log
 
+# Note: historically tracked .gitkeep placeholders remain in Git until
+# explicitly removed; ignore rules do not delete existing tracked files.

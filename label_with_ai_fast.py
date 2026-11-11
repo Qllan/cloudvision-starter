@@ -21,9 +21,11 @@ DEFAULT_LOG = ROOT / "reports" / "label_assisted" / "label_log.csv"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp"}
 
 
-def find_ai_mask(image_path: Path, folder: Path) -> Path | None:
+def find_ai_mask(image_path: Path, folder: Path, input_root: Path | None = None) -> Path | None:
     """Search *exact*, known mask names; avoid matching another satellite shot."""
     stem = image_path.stem
+    # Mirror input subfolders so repeated filenames cannot collide.
+    target_folder = folder / image_path.relative_to(input_root).parent if input_root else folder
     candidates = (
         f"{stem}_policy_mask.png",  # stage 14, run_competition_demo.py
         f"{stem}_mask.png",
@@ -31,7 +33,7 @@ def find_ai_mask(image_path: Path, folder: Path) -> Path | None:
         f"{image_path.name}.png",
     )
     for name in candidates:
-        path = folder / name
+        path = target_folder / name
         if path.is_file():
             return path
     return None
@@ -97,9 +99,12 @@ def apply_stroke(
 
 class FastLabelEditor:
     def __init__(self, root: tk.Tk, images: list[Path], masks_dir: Path,
-                 out_dir: Path, log_path: Path):
+                 out_dir: Path, log_path: Path, input_root: Path | None = None,
+                 blind: bool = False):
         self.root = root
+        self.blind = blind
         self.images = images
+        self.input_root = input_root.resolve() if input_root else None
         self.masks_dir = masks_dir
         self.out_dir = out_dir
         self.log_path = log_path
@@ -114,7 +119,8 @@ class FastLabelEditor:
         self.out_dir.mkdir(parents=True, exist_ok=True)
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
 
-        self.root.title("CloudVision AI — быстрая проверка масок")
+        self.root.title("CloudVision AI — независимая TEST-разметка" if blind
+                        else "CloudVision AI — быстрая проверка масок")
         self.root.configure(bg="#eaf0f6")
         self.root.protocol("WM_DELETE_WINDOW", self.close)
 
@@ -123,7 +129,7 @@ class FastLabelEditor:
         tk.Button(toolbar, text="← Предыдущий (B)", command=self.previous).pack(side="left", padx=3)
         tk.Button(toolbar, text="Сохранить (S)", command=self.save).pack(side="left", padx=3)
         tk.Button(toolbar, text="Следующий (N) →", command=self.next).pack(side="left", padx=3)
-        tk.Button(toolbar, text="Сброс к ИИ (R)", command=self.reset).pack(side="left", padx=3)
+        tk.Button(toolbar, text=("Очистить (R)" if blind else "Сброс к ИИ (R)"), command=self.reset).pack(side="left", padx=3)
         tk.Button(toolbar, text="Маска вкл/выкл (O)", command=self.toggle_overlay).pack(side="left", padx=3)
         tk.Button(toolbar, text="Кисть −", command=lambda: self.change_brush(-5)).pack(side="left", padx=3)
         tk.Button(toolbar, text="Кисть +", command=lambda: self.change_brush(5)).pack(side="left", padx=3)
@@ -162,7 +168,8 @@ class FastLabelEditor:
 
     @property
     def current_output(self) -> Path:
-        return self.out_dir / f"{self.current_image.stem}.png"
+        relative = self.current_image.relative_to(self.input_root) if self.input_root else self.current_image
+        return self.out_dir / relative.parent / f"{relative.stem}.png"
 
     def load_current(self) -> None:
         with Image.open(self.current_image) as source:
@@ -175,13 +182,16 @@ class FastLabelEditor:
         self.view_size = self.base_view.size
         self.canvas.config(width=self.view_size[0], height=self.view_size[1])
 
-        self.ai_path = find_ai_mask(self.current_image, self.masks_dir)
-        if self.ai_path:
+        self.ai_path = None if self.blind else find_ai_mask(self.current_image, self.masks_dir, self.input_root)
+        if self.blind:
+            self.seed_mask = Image.new("L", (w, h), 0)
+            info_seed = "TEST: только ручная разметка, без подсказок ИИ"
+        elif self.ai_path:
             self.seed_mask = mask_to_binary(self.ai_path, (w, h))
             info_seed = f"ИИ: {cloud_percent(self.seed_mask):.1f}%"
         else:
             self.seed_mask = Image.new("L", (w, h), 0)
-            info_seed = "⚠ маска ИИ не найдена (пустая)"
+            info_seed = "⚠ ПРЕДСКАЗАНИЕ ИИ ОТСУТСТВУЕТ (пустая маска — не прогноз)"
 
         if self.current_output.is_file():
             self.mask = mask_to_binary(self.current_output, (w, h))
@@ -274,6 +284,18 @@ class FastLabelEditor:
         return True
 
     def save(self):
+        if self.blind and self.mask.getbbox() is None:
+            if not messagebox.askyesno(
+                    "TEST: маска без облаков",
+                    "Подтверди, что ты внимательно проверил кадр и облаков действительно нет. Сохранить 0%?",
+                    parent=self.root):
+                return
+        elif not self.blind and self.ai_path is None and not self.modified:
+            if not messagebox.askyesno("Нет прогноза ИИ",
+                "На этом снимке отсутствует маска ИИ. Сохранить пустую маску как ручную разметку?",
+                parent=self.root):
+                return
+        self.current_output.parent.mkdir(parents=True, exist_ok=True)
         if self.stroke:
             # On-screen painting should be committed before saving.
             apply_stroke(self.mask, self.stroke, self.view_size, self.radius, self.stroke_add)
@@ -290,7 +312,8 @@ class FastLabelEditor:
                 writer.writerow(["image_name", "mask_file", "corrected_cloud_percent", "ai_cloud_percent"])
             writer.writerow([
                 self.current_image.name, str(self.current_output),
-                f"{cloud_percent(self.mask):.3f}", f"{cloud_percent(self.seed_mask):.3f}",
+                f"{cloud_percent(self.mask):.3f}",
+                "" if self.blind else f"{cloud_percent(self.seed_mask):.3f}",
             ])
         self.modified = False
         self.refresh_overlay()
@@ -308,7 +331,10 @@ class FastLabelEditor:
             self.load_current()
 
     def reset(self):
-        if messagebox.askyesno("Сброс к ИИ", "Заменить текущие исправления на исходную маску ИИ?", parent=self.root):
+        if messagebox.askyesno(
+                "Очистка маски" if self.blind else "Сброс к ИИ",
+                "Очистить ручную маску до 0%?" if self.blind else
+                "Заменить текущие исправления на исходную маску ИИ?", parent=self.root):
             self.mask = self.seed_mask.copy()
             self.modified = True
             self.refresh_overlay()
@@ -332,17 +358,73 @@ def main() -> None:
     parser.add_argument("--ai-masks", type=Path, default=DEFAULT_AI_MASKS)
     parser.add_argument("--out", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--start", type=str, default="", help="Начать со снимка, имя которого содержит текст")
+    parser.add_argument("--log", type=Path, default=None,
+                        help="Отдельный путь к журналу ручной разметки для текущего эксперимента")
+    parser.add_argument("--manifest", type=Path, default=None, help="CSV от select_v4_samples.py")
+    parser.add_argument("--splits", choices=("train,val", "train", "val", "test", "all"), default="all")
+    parser.add_argument("--missing-only", action="store_true",
+                        help="Открыть только снимки, для которых ещё не сохранена ручная маска")
+    parser.add_argument("--blind", action="store_true",
+                        help="Слепая разметка TEST: не открывать ни одной маски ИИ")
+    parser.add_argument("--review-csv", type=Path, default=None,
+                        help="Очередь пилотных кадров из operator_review.csv, в порядке приоритетов")
     args = parser.parse_args()
 
+    if args.review_csv is not None:
+        if args.blind or args.manifest is not None or args.splits != "all":
+            parser.error("--review-csv не совмещается с --blind, --manifest, --splits")
+        protected = {DEFAULT_OUTPUT.resolve(), *((ROOT / target).resolve() for target in (
+            "data/verified_v4", "data/test_verified_v4", "data/input", "reports/labels"))}
+        if (any(args.out.resolve() == path or args.out.resolve().is_relative_to(path)
+                for path in protected) or args.out.resolve().is_relative_to(args.input.resolve())):
+            parser.error("Для пилота укажи отдельную папку --out data/pilot_verified_v4")
+    if args.blind:
+        if args.manifest is None or args.splits != "test":
+            parser.error("Слепая разметка разрешена только с --manifest и --splits test")
+        if args.out.resolve() in {
+            DEFAULT_OUTPUT.resolve(), (ROOT / "data/verified_v4").resolve(),
+            (ROOT / "reports/labels").resolve(),
+        }:
+            parser.error("Для --blind используй отдельный --out data/test_verified_v4, не TRAIN-маски")
+        if args.out.resolve().is_relative_to(args.input.resolve()):
+            parser.error("Для --blind папка --out не должна находиться внутри исходных снимков")
+    if args.log is not None and args.log.resolve().is_relative_to(args.input.resolve()):
+        parser.error("Журнал --log должен находиться вне папки исходных изображений")
     if not args.input.is_dir():
         parser.error(f"Нет папки с изображениями: {args.input}")
-    images = sorted(x for x in args.input.iterdir() if x.is_file() and x.suffix.lower() in IMAGE_EXTENSIONS)
+    if args.splits != "all" and args.manifest is None:
+        parser.error("Для --splits нужно указать --manifest")
+    if args.review_csv is not None:
+        from cloudvision.operator_queue import review_queue
+        try:
+            images = review_queue(args.review_csv, args.input)
+        except (FileNotFoundError, ValueError) as error:
+            parser.error(str(error))
+    elif args.manifest is not None:
+        from cloudvision.selection import read_manifest
+        try:
+            selected_splits = None if args.splits == "all" else set(args.splits.split(","))
+            images = read_manifest(args.manifest, args.input, selected_splits)
+        except (FileNotFoundError, ValueError) as error:
+            parser.error(str(error))
+    else:
+        images = sorted(x.resolve() for x in args.input.rglob("*") if x.is_file() and not x.is_symlink() and x.suffix.lower() in IMAGE_EXTENSIONS)
+    if args.missing_only:
+        from cloudvision.selection import missing_verified_images
+        images = missing_verified_images(images, args.input, args.out)
+        if not images:
+            print("Готово: все выбранные снимки уже имеют сохранённые маски.")
+            return
     if not images:
         parser.error(f"Нет изображений в {args.input}")
-    if not args.ai_masks.is_dir():
+    if not args.blind and not args.ai_masks.is_dir():
         parser.error(f"Нет папки масок ИИ: {args.ai_masks}. Сначала запусти run_competition_demo.py")
     root = tk.Tk()
-    editor = FastLabelEditor(root, images, args.ai_masks, args.out, DEFAULT_LOG)
+    log_path = (args.log if args.log is not None else
+                (ROOT / "reports/test_labeling_v4/test_label_log.csv") if args.blind else
+                (ROOT / "reports/pilot_labeling_v4/pilot_label_log.csv") if args.review_csv else DEFAULT_LOG)
+    editor = FastLabelEditor(root, images, args.ai_masks, args.out, log_path,
+                             input_root=args.input.resolve(), blind=args.blind)
     if args.start:
         match = next((i for i, p in enumerate(images) if args.start.lower() in p.name.lower()), None)
         if match is None:
@@ -350,8 +432,14 @@ def main() -> None:
             parser.error("Снимок для --start не найден")
         editor.index = match
         editor.load_current()
-    print(f"Снимков: {len(images)}. Исправления -> {args.out}")
-    print("ИИ-подсказки взяты из stage14; модель заново не запускается.")
+    print(f"Снимков: {len(images)}" + (" без сохранённой разметки" if args.missing_only else "") + f". Исправления -> {args.out}")
+    if args.review_csv:
+        print("ПИЛОТ: все снимки из операторского CSV; сначала приоритетные. "
+              "Маски ИИ являются только подсказками, не эталоном.")
+    if args.blind:
+        print("Режим TEST: только RGB и ручная маска. Прогнозы ИИ НЕ используются.")
+    else:
+        print("ИИ-подсказки загружаются из --ai-masks; модель заново не запускается.")
     root.mainloop()
 
 

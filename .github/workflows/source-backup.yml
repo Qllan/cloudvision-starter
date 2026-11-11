@@ -1,0 +1,42 @@
+name: Build CloudVision source-only backup
+
+on:
+  push:
+    branches: [feature/gpu-batch-resume]
+    paths:
+      - ".github/workflows/source-backup.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout committed source with history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Archive tracked files and commit history
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p backup
+          git archive --format=zip --output=backup/cloudvision_source_snapshot.zip HEAD
+          git bundle create backup/cloudvision_git_history.bundle HEAD
+          git bundle verify backup/cloudvision_git_history.bundle
+          (
+            cd backup
+            sha256sum cloudvision_source_snapshot.zip cloudvision_git_history.bundle > SHA256SUMS.txt
+          )
+          printf '%s\n'             'CloudVision AI source-only backup from feature/gpu-batch-resume.'             'snapshot=committed tracked files only'             'history=reachable commits from snapshot HEAD'             "commit=$(git rev-parse HEAD)"             'No locally ignored data/, models/, reports/, checkpoints/, original photos or manual masks are included.'             'To restore: unpack source snapshot; use git bundle only if Git history restoration is required.'             > backup/BACKUP_INFO.txt
+      - name: Store source-only backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CloudVision_AI_Source_Backup
+          path: backup/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
